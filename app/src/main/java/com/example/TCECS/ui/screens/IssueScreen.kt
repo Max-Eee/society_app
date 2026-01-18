@@ -85,6 +85,14 @@ fun IssueScreen(
         viewModel.loadSavedPhoneNumber(context)
     }
 
+    // --- Auto-search when 5 digits are entered ---
+    LaunchedEffect(viewModel.searchQuery) {
+        if (viewModel.searchQuery.length == 5) {
+            viewModel.searchMember()
+            focusManager.clearFocus()
+        }
+    }
+
     // --- DEBOUNCE STATE ---
     var lastClickTime by remember { mutableLongStateOf(0L) }
     val debounceDuration = 2000L
@@ -195,20 +203,24 @@ fun IssueScreen(
         AlertDialog(
             onDismissRequest = { viewModel.dismissConflictDialog() },
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Multiple Employees Found") },
+            title = {
+                Text(
+                    "Multiple Employees Found",
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        "Found ${viewModel.conflictMembers.size} employees with last 5 digits: ${viewModel.searchQuery}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Text(
-                        "Please select the correct employee:",
+                        "Please select the correct employee",
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
@@ -239,13 +251,6 @@ fun IssueScreen(
                                         text = member.name ?: "",
                                         style = MaterialTheme.typography.bodyMedium
                                     )
-                                    if (!member.station.isNullOrEmpty()) {
-                                        Text(
-                                            text = "Station: ${member.station}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -602,9 +607,7 @@ fun MemberDetailsCard(member: Member) {
             HorizontalDivider()
             DetailRow(label = "Name", value = member.name ?: "", valueStyle = MaterialTheme.typography.titleMedium)
             HorizontalDivider()
-            DetailRow(label = "Station", value = member.station ?: "")
-            HorizontalDivider()
-            DetailRow(label = "Demand Adjust", value = "₹${(member.insurance ?: 0.0).toInt()}")
+            DetailRow(label = "Corporation", value = member.station ?: "")
             HorizontalDivider()
 
             val sno = member.sno?.toString()?.trim() ?: ""
@@ -715,6 +718,8 @@ fun MemberDetailsCard(member: Member) {
             } else {
                 Text("No dividend entries", style = MaterialTheme.typography.bodyMedium)
             }
+            HorizontalDivider()
+            DetailRow(label = "Demand Adjust", value = "₹${(member.insurance ?: 0.0).toInt()}")
             HorizontalDivider()
             DetailRow(label = "NEFT Amount", value = "₹${member.neft ?: 0}")
             DetailRow(label = "A/C No", value = member.accountNumber?.trim() ?: "")
