@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.Chennai_Coop"
+    namespace = "com.example.TCECS"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.Chennai_Coop"
+        applicationId = "com.example.TCECS"
         minSdk = 24
         targetSdk = 34
         versionCode = 1
