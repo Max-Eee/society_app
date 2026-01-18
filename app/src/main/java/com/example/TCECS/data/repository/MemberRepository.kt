@@ -17,7 +17,7 @@ class MemberRepository {
     private val client = SupabaseClient.client
     private val TAG = "MemberRepository"
 
-    private val TABLE_NAME = "financial_records_duplicate"
+    private val TABLE_NAME = "financial_records"
 
     suspend fun searchMemberByNumber(searchQuery: String): Result<Member?> {
         return withContext(Dispatchers.IO) {
