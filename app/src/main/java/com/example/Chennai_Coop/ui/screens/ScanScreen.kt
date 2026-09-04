@@ -147,6 +147,7 @@ fun ScanScreen(
                         title = "Do Not Issue Again",
                         member = status.member,
                         statusMessage = "Already scanned on ${formatDisplayDate(status.member.scannerDate)}",
+                        warningStyle = true,
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
                     )
                 }
@@ -209,12 +210,30 @@ fun ResultSheet(
     title: String,
     member: com.example.Chennai_Coop.data.models.Member,
     statusMessage: String,
+    warningStyle: Boolean = false,
     onDismiss: () -> Unit
 ) {
+    val containerColor = if (warningStyle) {
+        MaterialTheme.colorScheme.errorContainer
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
+    val contentColor = if (warningStyle) {
+        MaterialTheme.colorScheme.onErrorContainer
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    val supportingColor = if (warningStyle) {
+        MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.72f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surface,
+        color = containerColor,
+        contentColor = contentColor,
         tonalElevation = 8.dp,
         shadowElevation = 10.dp
     ) {
@@ -240,21 +259,27 @@ fun ResultSheet(
                 fontWeight = FontWeight.Bold,
                 color = iconColor
             )
-            Text(statusMessage, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(statusMessage, style = MaterialTheme.typography.bodyMedium, color = supportingColor)
 
             Spacer(modifier = Modifier.height(24.dp))
-            Divider(color = MaterialTheme.colorScheme.outlineVariant)
+            Divider(
+                color = if (warningStyle) {
+                    MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.18f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                }
+            )
             Spacer(modifier = Modifier.height(16.dp))
 
             // Member Details Grid
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                DataColumn("Name", member.name ?: "Unknown")
-                DataColumn("Member No", member.memberNumber ?: "N/A", alignment = Alignment.End)
+                DataColumn("Name", member.name ?: "Unknown", labelColor = supportingColor)
+                DataColumn("Member No", member.memberNumber ?: "N/A", alignment = Alignment.End, labelColor = supportingColor)
             }
             Spacer(modifier = Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                DataColumn("Employee No", member.employeeNumber ?: "N/A")
-                DataColumn("Scanned", formatDisplayDate(member.scannerDate), alignment = Alignment.End)
+                DataColumn("Employee No", member.employeeNumber ?: "N/A", labelColor = supportingColor)
+                DataColumn("Scanned", formatDisplayDate(member.scannerDate), alignment = Alignment.End, labelColor = supportingColor)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -304,9 +329,14 @@ fun ErrorSheet(
 }
 
 @Composable
-fun DataColumn(label: String, value: String, alignment: Alignment.Horizontal = Alignment.Start) {
+fun DataColumn(
+    label: String,
+    value: String,
+    alignment: Alignment.Horizontal = Alignment.Start,
+    labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
+) {
     Column(horizontalAlignment = alignment) {
-        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = labelColor)
         Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
     }
 }
