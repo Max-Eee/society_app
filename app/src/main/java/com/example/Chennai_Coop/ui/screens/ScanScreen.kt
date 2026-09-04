@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -141,10 +143,10 @@ fun ScanScreen(
                 is ScanStatus.AlreadyScanned -> {
                     ResultSheet(
                         icon = Icons.Rounded.Warning,
-                        iconColor = Color(0xFFFF9800), // Orange
-                        title = "Already Scanned",
+                        iconColor = MaterialTheme.colorScheme.error,
+                        title = "Do Not Issue Again",
                         member = status.member,
-                        statusMessage = "Scanned on ${formatDisplayDate(status.member.scannerDate)}",
+                        statusMessage = "Already scanned on ${formatDisplayDate(status.member.scannerDate)}",
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
                     )
                 }
@@ -232,7 +234,12 @@ fun ResultSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                title,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = iconColor
+            )
             Text(statusMessage, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -313,6 +320,11 @@ private fun BulkGroupSheet(
     onScan: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val memberListState = rememberLazyListState()
+    val hasMoreMembersBelow by remember {
+        derivedStateOf { memberListState.canScrollForward }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
@@ -334,41 +346,118 @@ private fun BulkGroupSheet(
                 Text("Sno", Modifier.width(42.dp), fontWeight = FontWeight.Bold)
                 Text("Mno", Modifier.width(70.dp), fontWeight = FontWeight.Bold)
                 Text("Name", Modifier.weight(1f), fontWeight = FontWeight.Bold)
-                Text("Select", fontWeight = FontWeight.Bold)
+                Text("Status", Modifier.width(92.dp), fontWeight = FontWeight.Bold)
             }
             HorizontalDivider(Modifier.padding(vertical = 6.dp))
 
-            LazyColumn(Modifier.weight(1f)) {
-                itemsIndexed(
-                    items = group.members,
-                    key = { index, member -> member.memberNumber ?: "member-$index" }
-                ) { index, member ->
-                    val memberNumber = member.memberNumber.orEmpty()
-                    val scanned = !member.scannerDate.isNullOrBlank()
-                    val decoration = if (scanned) TextDecoration.LineThrough else TextDecoration.None
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text((index + 1).toString(), Modifier.width(42.dp), textDecoration = decoration)
-                        Text(memberNumber, Modifier.width(70.dp), textDecoration = decoration)
-                        Column(Modifier.weight(1f).padding(end = 4.dp)) {
-                            Text(member.name.orEmpty(), textDecoration = decoration, maxLines = 2)
-                            if (scanned) {
+            Box(Modifier.weight(1f)) {
+                LazyColumn(
+                    state = memberListState,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    itemsIndexed(
+                        items = group.members,
+                        key = { index, member -> member.memberNumber ?: "member-$index" }
+                    ) { index, member ->
+                        val memberNumber = member.memberNumber.orEmpty()
+                        val scanned = !member.scannerDate.isNullOrBlank()
+                        val decoration = if (scanned) TextDecoration.LineThrough else TextDecoration.None
+                        val rowColor = if (scanned) {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                (index + 1).toString(),
+                                Modifier.width(42.dp),
+                                color = rowColor,
+                                textDecoration = decoration
+                            )
+                            Text(
+                                memberNumber,
+                                Modifier.width(70.dp),
+                                color = rowColor,
+                                textDecoration = decoration
+                            )
+                            Column(Modifier.weight(1f).padding(end = 4.dp)) {
                                 Text(
-                                    "Scanned ${formatDisplayDate(member.scannerDate)}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    member.name.orEmpty(),
+                                    color = rowColor,
+                                    textDecoration = decoration,
+                                    maxLines = 2
                                 )
+                                if (scanned) {
+                                    Text(
+                                        "Scanned ${formatDisplayDate(member.scannerDate)}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.36f),
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                            if (scanned) {
+                                Box(
+                                    modifier = Modifier.width(92.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "SCANNED",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            } else {
+                                Box(Modifier.width(92.dp), contentAlignment = Alignment.Center) {
+                                    Checkbox(
+                                        checked = memberNumber in selectedMemberNumbers,
+                                        enabled = memberNumber.isNotBlank(),
+                                        onCheckedChange = { onToggle(member) }
+                                    )
+                                }
                             }
                         }
-                        Checkbox(
-                            checked = memberNumber in selectedMemberNumbers,
-                            enabled = !scanned && memberNumber.isNotBlank(),
-                            onCheckedChange = { onToggle(member) }
-                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+
+                if (hasMoreMembersBelow) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(72.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.62f),
+                                        MaterialTheme.colorScheme.surface
+                                    )
+                                )
+                            ),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Rounded.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                "More members below",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 
@@ -454,12 +543,24 @@ private fun BulkAllScannedSheet(groupId: String, memberCount: Int, onDismiss: ()
     Surface(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
         tonalElevation = 8.dp
     ) {
         Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Rounded.CheckCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(56.dp))
+            Icon(
+                Icons.Rounded.Warning,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(56.dp)
+            )
             Spacer(Modifier.height(12.dp))
-            Text("Group complete", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "Do Not Issue Again",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error
+            )
             Text(
                 "All members in group $groupId have already been scanned.",
                 style = MaterialTheme.typography.titleMedium,

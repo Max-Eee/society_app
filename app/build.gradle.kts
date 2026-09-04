@@ -19,6 +19,27 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    flavorDimensions += "appMode"
+    productFlavors {
+        create("issue") {
+            dimension = "appMode"
+            applicationIdSuffix = ".issue"
+            versionNameSuffix = "-issue"
+            buildConfigField("String", "APP_MODE", "\"ISSUE\"")
+        }
+        create("scan") {
+            dimension = "appMode"
+            applicationIdSuffix = ".scan"
+            versionNameSuffix = "-scan"
+            buildConfigField("String", "APP_MODE", "\"SCAN\"")
+        }
+        create("all") {
+            dimension = "appMode"
+            versionNameSuffix = "-all"
+            buildConfigField("String", "APP_MODE", "\"ALL\"")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -37,6 +58,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

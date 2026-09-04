@@ -50,7 +50,11 @@ Restore the phone's original refresh-rate and battery-saver settings when finish
 ./build-apk.cmd
 ```
 
-The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+This one command builds all three debug variants:
+
+- `app/build/outputs/apk/issue/debug/app-issue-debug.apk` — Issue, Report, and Printer
+- `app/build/outputs/apk/scan/debug/app-scan-debug.apk` — Scan, Report, and Printer
+- `app/build/outputs/apk/all/debug/app-all-debug.apk` — all four tabs
 
 To build the release variant:
 
@@ -58,7 +62,7 @@ To build the release variant:
 ./build-apk.cmd -Configuration Release
 ```
 
-The current release variant is not configured with a production signing key, so use the debug APK for direct USB installation.
+The same three flavors are generated under their respective `release` directories. Release APKs are not configured with a production signing key, so use the debug APKs for direct USB installation.
 
 ## Generate group sweet-list PDFs
 

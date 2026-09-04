@@ -31,17 +31,12 @@ import com.example.Chennai_Coop.ui.theme.SocietyTheme
 import com.example.Chennai_Coop.utils.BluetoothPrinterManager
 import com.example.Chennai_Coop.utils.ThermalPrinterManager
 
-// ==================== APP MODE CONFIGURATION ====================
-// Change this value to control which features are visible:
-// - AppMode.ALL: Show all tabs (Issue, Scan, Report, Printer)
-// - AppMode.SCAN: Show only Scan and Report tabs (hide Issue and Printer)
-// - AppMode.ISSUE: Show only Issue, Report, and Printer tabs (hide Scan)
-val CURRENT_APP_MODE = AppMode.ALL
-// ================================================================
+// Each Gradle product flavor supplies its own APP_MODE value.
+val CURRENT_APP_MODE: AppMode = AppMode.valueOf(BuildConfig.APP_MODE)
 
 enum class AppMode {
     ALL,    // Show all features
-    SCAN,   // Scan-only version (hide Issue and Printer)
+    SCAN,   // Scan, Report, and Printer
     ISSUE   // Issue-only version (hide Scan)
 }
 
@@ -140,8 +135,9 @@ fun SocietyApp() {
                         AppMode.ALL -> true // Show all tabs
                         AppMode.SCAN -> destination in listOf(
                             AppDestinations.SCAN,
-                            AppDestinations.REPORT
-                        ) // Show only Scan and Report
+                            AppDestinations.REPORT,
+                            AppDestinations.PRINTER
+                        ) // Show Scan, Report, and Printer
                         AppMode.ISSUE -> destination in listOf(
                             AppDestinations.ISSUE,
                             AppDestinations.REPORT,

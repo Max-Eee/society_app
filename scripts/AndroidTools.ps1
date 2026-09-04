@@ -96,7 +96,7 @@ function Install-DebugApk {
         [Parameter(Mandatory)][string]$Serial
     )
 
-    $apk = Join-Path $Tooling.ProjectRoot "app\build\outputs\apk\debug\app-debug.apk"
+    $apk = Join-Path $Tooling.ProjectRoot "app\build\outputs\apk\all\debug\app-all-debug.apk"
     if (-not (Test-Path -LiteralPath $apk)) { throw "Debug APK was not created at $apk" }
     # Push install is more reliable than streamed install on some USB connections.
     & $Tooling.Adb -s $Serial install --no-streaming -r $apk

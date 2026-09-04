@@ -10,7 +10,7 @@ $serial = Get-AuthorizedDevice -Adb $tooling.Adb
 $stateFile = Join-Path $env:TEMP "society-app-device-$serial.json"
 
 if (-not $SkipBuild) {
-    Invoke-GradleTask -Tooling $tooling -Task "assembleDebug"
+    Invoke-GradleTask -Tooling $tooling -Task "assembleAllDebug"
 }
 Install-DebugApk -Tooling $tooling -Serial $serial
 
