@@ -47,6 +47,10 @@ enum class AppMode {
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        const val EXTRA_ACCELERATED_MODE = "accelerated_mode"
+    }
+
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -58,12 +62,34 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        requestHighestRefreshRateWhenAccelerated()
         requestBluetoothPermissions()
         enableEdgeToEdge()
         setContent {
             SocietyTheme {
                 SocietyApp()
             }
+        }
+    }
+
+    /**
+     * Accelerated launches opt in to the fastest display mode exposed by the device.
+     * Android can still reduce the actual frame rate when the UI is idle or the device
+     * is thermally throttled; this removes an app-side display-mode limitation.
+     */
+    private fun requestHighestRefreshRateWhenAccelerated() {
+        if (!intent.getBooleanExtra(EXTRA_ACCELERATED_MODE, false)) return
+
+        @Suppress("DEPRECATION")
+        val currentMode = windowManager.defaultDisplay.mode
+        @Suppress("DEPRECATION")
+        val highestRefreshMode = windowManager.defaultDisplay.supportedModes
+            .filter { it.physicalWidth == currentMode.physicalWidth && it.physicalHeight == currentMode.physicalHeight }
+            .maxByOrNull { it.refreshRate }
+            ?: return
+
+        window.attributes = window.attributes.apply {
+            preferredDisplayModeId = highestRefreshMode.modeId
         }
     }
 
