@@ -4,8 +4,10 @@ import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,6 +31,7 @@ fun PrinterScreen(
     var isScanning by remember { mutableStateOf(false) }
     // Collect flows from the manager passed from MainActivity
     val scannedDevices by printerManager.scannedDevices.collectAsState()
+    val connectedDevice by printerManager.connectedDevice.collectAsState()
     var pairedDevices by remember { mutableStateOf(printerManager.getPairedDevices()) }
     var connectingId by remember { mutableStateOf<String?>(null) }
 
@@ -41,104 +44,164 @@ fun PrinterScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-
-        // Scan Controls
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        val activePrinter = connectedDevice
+        if (activePrinter != null) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                shape = RoundedCornerShape(24.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column {
-                    Text("Bluetooth Scan", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        if (isScanning) "Scanning..." else "Idle",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Button(onClick = {
-                    if (isScanning) {
-                        printerManager.stopDiscovery()
-                    } else {
-                        printerManager.startDiscovery()
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Print,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Connected Printer",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = activePrinter.name ?: "Unknown Printer",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = activePrinter.address,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
-                    isScanning = !isScanning
-                }) {
-                    Icon(if (isScanning) Icons.Default.Close else Icons.Default.Refresh, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (isScanning) "Stop" else "Scan")
-                }
-            }
-        }
 
-        Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(16.dp))
 
-        // Device List
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            // PAIRED DEVICES SECTION
-            item {
-                Text(
-                    "Paired Devices",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            }
-
-            if (pairedDevices.isEmpty()) {
-                item { Text("No paired devices found", style = MaterialTheme.typography.bodyMedium) }
-            }
-
-            items(pairedDevices) { device ->
-                DeviceItem(device, true, connectingId == device.address) {
-                    // CONNECT LOGIC
-                    connectingId = device.address
-                    printerManager.stopDiscovery()
-                    isScanning = false
-                    Toast.makeText(context, "Connecting...", Toast.LENGTH_SHORT).show()
-
-                    scope.launch {
-                        val success = printerManager.connect(device)
-                        connectingId = null
-                        Toast.makeText(
-                            context,
-                            if (success) "Connected!" else "Connection Failed",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                    OutlinedButton(
+                        onClick = {
+                            printerManager.close()
+                            connectingId = null
+                            isScanning = false
+                            Toast.makeText(context, "Printer disconnected", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Disconnect")
                     }
                 }
             }
+        } else {
 
-            // AVAILABLE (SCANNED) DEVICES SECTION
-            if (scannedDevices.isNotEmpty()) {
+            // Scan Controls
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Bluetooth Scan", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (isScanning) "Scanning..." else "Idle",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    Button(onClick = {
+                        if (isScanning) {
+                            printerManager.stopDiscovery()
+                        } else {
+                            printerManager.startDiscovery()
+                        }
+                        isScanning = !isScanning
+                    }) {
+                        Icon(if (isScanning) Icons.Default.Close else Icons.Default.Refresh, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (isScanning) "Stop" else "Scan")
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            // Device List
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                // PAIRED DEVICES SECTION
                 item {
-                    Divider(Modifier.padding(vertical = 8.dp))
                     Text(
-                        "Available Devices",
+                        "Paired Devices",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.padding(vertical = 8.dp)
                     )
                 }
-                items(scannedDevices) { device ->
-                    if (pairedDevices.none { it.address == device.address }) {
-                        DeviceItem(device, false, false) {
-                            // PAIRING LOGIC
-                            val initiated = printerManager.pairDevice(device)
+
+                if (pairedDevices.isEmpty()) {
+                    item { Text("No paired devices found", style = MaterialTheme.typography.bodyMedium) }
+                }
+
+                items(pairedDevices) { device ->
+                    DeviceItem(device, true, connectingId == device.address) {
+                        // CONNECT LOGIC
+                        connectingId = device.address
+                        printerManager.stopDiscovery()
+                        isScanning = false
+                        Toast.makeText(context, "Connecting...", Toast.LENGTH_SHORT).show()
+
+                        scope.launch {
+                            val success = printerManager.connect(device)
+                            connectingId = null
                             Toast.makeText(
                                 context,
-                                if (initiated) "Pairing..." else "Pairing Error",
+                                if (success) "Connected!" else "Connection Failed",
                                 Toast.LENGTH_SHORT
                             ).show()
+                        }
+                    }
+                }
 
-                            scope.launch {
-                                delay(5000) // Wait for pairing
-                                pairedDevices = printerManager.getPairedDevices()
+                // AVAILABLE (SCANNED) DEVICES SECTION
+                if (scannedDevices.isNotEmpty()) {
+                    item {
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        Text(
+                            "Available Devices",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                    items(scannedDevices) { device ->
+                        if (pairedDevices.none { it.address == device.address }) {
+                            DeviceItem(device, false, false) {
+                                // PAIRING LOGIC
+                                val initiated = printerManager.pairDevice(device)
+                                Toast.makeText(
+                                    context,
+                                    if (initiated) "Pairing..." else "Pairing Error",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                                scope.launch {
+                                    delay(5000) // Wait for pairing
+                                    pairedDevices = printerManager.getPairedDevices()
+                                }
                             }
                         }
                     }

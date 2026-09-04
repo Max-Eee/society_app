@@ -169,7 +169,10 @@ fun SocietyApp() {
                     )
                 }
                 AppDestinations.SCAN -> {
-                    ScanScreen(modifier = Modifier.padding(innerPadding))
+                    ScanScreen(
+                        thermalPrinterManager = thermalPrinter,
+                        modifier = Modifier.padding(innerPadding)
+                    )
                 }
                 // --- NEW REPORT TAB ---
                 AppDestinations.REPORT -> {

@@ -10,55 +10,79 @@ The scripts automatically locate the Android SDK and JDK 17 already installed on
 
 ### Build, install, and run in DEV mode
 
-```powershell
-.\dev.cmd
+```bash
+./dev.cmd
 ```
 
 This creates a debug build, reinstalls it while preserving app data, and opens the app. Run the same command after making code changes. Native Android does not have browser-style live reload, so changes must be rebuilt and installed.
 
 To reinstall the last build without compiling it again:
 
-```powershell
-.\dev.cmd -SkipBuild
+```bash
+./dev.cmd -SkipBuild
 ```
 
 ### Run in accelerated/high-refresh mode
 
-```powershell
-.\accelerated.cmd
+```bash
+./accelerated.cmd
 ```
 
 Accelerated mode builds and installs the debug app, requests the phone's fastest display mode, requests 120 Hz from Android, disables battery saver, and enables Android's fixed-performance mode.
 
 You can request another refresh rate:
 
-```powershell
-.\accelerated.cmd -RefreshRate 90
+```bash
+./accelerated.cmd -RefreshRate 90
 ```
 
 Android may still lower the real frame rate for static screens or thermal protection. Jetpack Compose only renders frames when UI content changes, so an idle screen is not expected to continuously render at 120 FPS. Accelerated mode consumes more power and can heat the phone.
 
 Restore the phone's original refresh-rate and battery-saver settings when finished:
 
-```powershell
-.\restore-device.cmd
+```bash
+./restore-device.cmd
 ```
 
 ### Build an APK only
 
-```powershell
-.\build-apk.cmd
+```bash
+./build-apk.cmd
 ```
 
-The debug APK is written to `app\build\outputs\apk\debug\app-debug.apk`.
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
 
 To build the release variant:
 
-```powershell
-.\build-apk.cmd -Configuration Release
+```bash
+./build-apk.cmd -Configuration Release
 ```
 
 The current release variant is not configured with a production signing key, so use the debug APK for direct USB installation.
+
+## Generate group sweet-list PDFs
+
+Group PDFs are generated from the current Supabase `ccocs` data. Every PDF contains the society and meeting details, a secured group QR, members ordered by numeric member number, signature spaces, signed-member count, and an attestation area.
+
+Generate one PDF for every group:
+
+```bash
+./generate-group-pdfs.cmd
+```
+
+Generate a single group while checking the layout:
+
+```bash
+./generate-group-pdfs.cmd --group-id EDHS013
+```
+
+Override meeting details when required:
+
+```bash
+./generate-group-pdfs.cmd --meeting-date "12/01/2026 at 11:00 AM" --venue "Conference Hall, Admin Building"
+```
+
+Files are written to `output/pdf/group-forms`. The QR stores an opaque per-group UUID plus an HMAC signature; it does not expose the station-derived group ID.
 
 ## Requirements
 

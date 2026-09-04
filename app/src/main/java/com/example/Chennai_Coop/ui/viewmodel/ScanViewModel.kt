@@ -10,9 +10,11 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.Chennai_Coop.data.models.BulkGroup
 import com.example.Chennai_Coop.data.models.Member
 import com.example.Chennai_Coop.data.repository.MemberRepository
 import com.example.Chennai_Coop.utils.PhoneNumberManager
+import com.example.Chennai_Coop.utils.ThermalPrinterManager
 import kotlinx.coroutines.launch
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
@@ -37,6 +39,15 @@ class ScanViewModel : ViewModel() {
         private set
 
     var scanStatus by mutableStateOf<ScanStatus>(ScanStatus.Idle)
+        private set
+
+    var bulkGroup by mutableStateOf<BulkGroup?>(null)
+        private set
+
+    var selectedBulkMemberNumbers by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    var bulkPrintMessage by mutableStateOf<String?>(null)
         private set
 
     // --- HELPER: Clean Phone Number ---
@@ -67,8 +78,8 @@ class ScanViewModel : ViewModel() {
     // --- SECURITY: HMAC VERIFICATION ---
     /**
      * Parses the raw QR string.
-     * Expected format: "MemberID|HMACSignature"
-     * Returns the MemberID if valid, null if invalid/tampered.
+     * Expected format: "Payload|HMACSignature". Payload is either a member ID or
+     * "GROUP:<opaque-group-qr-id>".
      */
     private fun verifyQrSignature(rawQrData: String): String? {
         try {
@@ -77,15 +88,14 @@ class ScanViewModel : ViewModel() {
             // If it doesn't have exactly 2 parts, it's either an old QR or invalid format
             if (parts.size != 2) return null
 
-            val memberId = parts[0]
+            val payload = parts[0]
             val receivedSignature = parts[1]
 
-            // Re-calculate signature based on the ID we found
-            val calculatedSignature = computeHmacSha256(memberId, SECRET_KEY)
+            val calculatedSignature = computeHmacSha256(payload, SECRET_KEY)
 
             // Compare calculated vs received
             return if (calculatedSignature == receivedSignature) {
-                memberId // Valid!
+                payload
             } else {
                 null // Tampered!
             }
@@ -155,12 +165,46 @@ class ScanViewModel : ViewModel() {
             scanStatus = ScanStatus.Scanning
 
             // 1. VERIFY SIGNATURE FIRST
-            val validMemberId = verifyQrSignature(rawQrCode)
+            val validPayload = verifyQrSignature(rawQrCode)
 
-            if (validMemberId == null) {
+            if (validPayload == null) {
                 // Signature check failed (Fake QR or Old Format)
                 isLoading = false
                 scanStatus = ScanStatus.Error("Security Alert: Invalid or Tampered QR Code.")
+                return@launch
+            }
+
+            if (validPayload.startsWith(GROUP_PAYLOAD_PREFIX)) {
+                val groupQrId = validPayload.removePrefix(GROUP_PAYLOAD_PREFIX).trim()
+                if (groupQrId.isBlank()) {
+                    isLoading = false
+                    scanStatus = ScanStatus.Error("Invalid group QR code")
+                    return@launch
+                }
+
+                repository.getMembersByGroupQrId(groupQrId)
+                    .onSuccess { group ->
+                        if (group == null || group.members.isEmpty()) {
+                            scanStatus = ScanStatus.Invalid
+                        } else {
+                            bulkGroup = group
+                            selectedBulkMemberNumbers = group.members
+                                .filterNot(::hasMemberBeenScanned)
+                                .mapNotNull { it.memberNumber?.takeIf(String::isNotBlank) }
+                                .toSet()
+                            bulkPrintMessage = null
+                            scanStatus = if (group.members.all(::hasMemberBeenScanned)) {
+                                ScanStatus.BulkAllScanned(group.groupId, group.members.size)
+                            } else {
+                                ScanStatus.BulkGroupReady(group)
+                            }
+                        }
+                    }
+                    .onFailure { exception ->
+                        scanStatus = ScanStatus.Error(exception.message ?: "Unable to load group")
+                    }
+
+                isLoading = false
                 return@launch
             }
 
@@ -170,7 +214,7 @@ class ScanViewModel : ViewModel() {
             }
 
             // 3. Query Repo using the EXTRACTED ID (validMemberId), not the raw string
-            val result = repository.getMemberByQrCode(validMemberId)
+            val result = repository.getMemberByQrCode(validPayload)
 
             result.onSuccess { member ->
                 if (member != null) {
@@ -190,6 +234,100 @@ class ScanViewModel : ViewModel() {
                 }
             }.onFailure { exception ->
                 scanStatus = ScanStatus.Error(exception.message ?: "Unknown error")
+            }
+
+            isLoading = false
+        }
+    }
+
+    private fun hasMemberBeenScanned(member: Member): Boolean =
+        hasValidScanDate(member.scannerDate)
+
+    fun toggleBulkMember(member: Member) {
+        val memberNumber = member.memberNumber ?: return
+        if (hasMemberBeenScanned(member)) return
+
+        selectedBulkMemberNumbers = if (memberNumber in selectedBulkMemberNumbers) {
+            selectedBulkMemberNumbers - memberNumber
+        } else {
+            selectedBulkMemberNumbers + memberNumber
+        }
+    }
+
+    fun toggleAllBulkMembers() {
+        val selectableMemberNumbers = bulkGroup?.members
+            ?.filterNot(::hasMemberBeenScanned)
+            ?.mapNotNull { it.memberNumber?.takeIf(String::isNotBlank) }
+            ?.toSet()
+            .orEmpty()
+
+        selectedBulkMemberNumbers = if (
+            selectableMemberNumbers.isNotEmpty() &&
+            selectedBulkMemberNumbers.containsAll(selectableMemberNumbers)
+        ) {
+            emptySet()
+        } else {
+            selectableMemberNumbers
+        }
+    }
+
+    fun scanSelectedGroupMembers(
+        context: Context,
+        printerManager: ThermalPrinterManager
+    ) {
+        val group = bulkGroup ?: return
+        val selectedMembers = group.members.filter {
+            it.memberNumber in selectedBulkMemberNumbers && !hasMemberBeenScanned(it)
+        }
+        if (selectedMembers.isEmpty()) return
+
+        if (scannerPhoneNumber.isNullOrBlank()) detectPhoneNumber(context)
+        val phoneToSend = cleanPhoneNumber(scannerPhoneNumber)
+        if (phoneToSend.isBlank()) {
+            scanStatus = ScanStatus.Error("Unable to detect scanner phone number")
+            return
+        }
+
+        viewModelScope.launch {
+            isLoading = true
+            bulkPrintMessage = null
+            scanStatus = ScanStatus.BulkScanning(group.groupId, selectedMembers.size)
+
+            repository.updateGroupScanInfo(
+                groupId = group.groupId,
+                memberNumbers = selectedMembers.mapNotNull { it.memberNumber },
+                scannerNumber = phoneToSend
+            ).onSuccess { scannedAt ->
+                val selectedNumbers = selectedMembers.mapNotNull { it.memberNumber }.toSet()
+                val updatedMembers = group.members.map { member ->
+                    if (member.memberNumber in selectedNumbers) {
+                        member.copy(scannerDate = scannedAt, scannerNumber = phoneToSend)
+                    } else {
+                        member
+                    }
+                }
+                val updatedGroup = group.copy(members = updatedMembers)
+                bulkGroup = updatedGroup
+                selectedBulkMemberNumbers = emptySet()
+
+                val totalScanned = updatedMembers.count(::hasMemberBeenScanned)
+                scanStatus = ScanStatus.BulkScanned(
+                    groupId = group.groupId,
+                    scannedMembers = selectedMembers,
+                    scannedAt = scannedAt,
+                    totalScanned = totalScanned,
+                    totalMembers = updatedMembers.size
+                )
+
+                printerManager.printBulkScan(
+                    groupId = group.groupId,
+                    members = selectedMembers,
+                    scannedAt = scannedAt,
+                    onSuccess = { bulkPrintMessage = "Scanned member list printed automatically" },
+                    onError = { error -> bulkPrintMessage = "Scan saved successfully. Print failed: $error" }
+                )
+            }.onFailure { exception ->
+                scanStatus = ScanStatus.Error(exception.message ?: "Failed to issue selected members")
             }
 
             isLoading = false
@@ -235,8 +373,11 @@ class ScanViewModel : ViewModel() {
             PhoneNumberManager.savePhoneNumber(context, cleaned)
         }
 
-        scannedMember?.let { member ->
-            updateScanInfo(member)
+        val group = bulkGroup
+        if (group != null) {
+            scanStatus = ScanStatus.BulkGroupReady(group)
+        } else {
+            scannedMember?.let { member -> updateScanInfo(member) }
         }
     }
 
@@ -246,7 +387,14 @@ class ScanViewModel : ViewModel() {
 
     fun resetScan() {
         scannedMember = null
+        bulkGroup = null
+        selectedBulkMemberNumbers = emptySet()
+        bulkPrintMessage = null
         scanStatus = ScanStatus.Idle
+    }
+
+    companion object {
+        private const val GROUP_PAYLOAD_PREFIX = "GROUP:"
     }
 }
 
@@ -254,8 +402,17 @@ sealed class ScanStatus {
     object Idle : ScanStatus()
     object Scanning : ScanStatus()
     data class Verified(val member: Member) : ScanStatus()
-    data class AlreadyIssued(val member: Member) : ScanStatus()
     data class AlreadyScanned(val member: Member) : ScanStatus()
+    data class BulkGroupReady(val group: BulkGroup) : ScanStatus()
+    data class BulkScanning(val groupId: String, val selectedCount: Int) : ScanStatus()
+    data class BulkScanned(
+        val groupId: String,
+        val scannedMembers: List<Member>,
+        val scannedAt: String,
+        val totalScanned: Int,
+        val totalMembers: Int
+    ) : ScanStatus()
+    data class BulkAllScanned(val groupId: String, val memberCount: Int) : ScanStatus()
     object Invalid : ScanStatus()
     data class Error(val message: String) : ScanStatus()
 }

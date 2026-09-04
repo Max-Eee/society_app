@@ -7,9 +7,9 @@ import io.github.jan.supabase.serializer.KotlinXSerializer
 import kotlinx.serialization.json.Json
 
 object SupabaseClient {
-    // TODO: Replace with your actual Supabase URL and API Key
-    private const val SUPABASE_URL = "https://ybpmaombndxxrlyamrpg.supabase.co"
-    private const val SUPABASE_API_KEY = "sb_publishable_eJIsRKcqUHLizKr702BpXw_4PkO2kcI"
+    // Connected CCOCS Supabase project. This is a public client key, not a secret/service-role key.
+    private const val SUPABASE_URL = "https://ytkyjilhyrkklnuwdzuj.supabase.co"
+    private const val SUPABASE_API_KEY = "sb_publishable_YhRzvg60s5gTJR4xpyXO5w_f6CjdcU4"
 
     val client by lazy {
         createSupabaseClient(

@@ -2,6 +2,7 @@ package com.example.Chennai_Coop.data.repository
 
 import android.util.Log
 import com.example.Chennai_Coop.data.models.DividendEntry
+import com.example.Chennai_Coop.data.models.BulkGroup
 import com.example.Chennai_Coop.data.models.Member
 import com.example.Chennai_Coop.data.models.MemberUpdate
 import com.example.Chennai_Coop.data.remote.SupabaseClient
@@ -17,21 +18,25 @@ class MemberRepository {
     private val client = SupabaseClient.client
     private val TAG = "MemberRepository"
 
-    private val TABLE_NAME = "financial_records"
+    private val TABLE_NAME = "ccocs"
+
+    private fun searchFieldFor(value: String): String =
+        if (value.length == 5 && value.all(Char::isDigit)) "mno" else "edpno"
 
     suspend fun searchMemberByNumber(searchQuery: String): Result<Member?> {
         return withContext(Dispatchers.IO) {
             try {
                 Log.d(TAG, "Searching for member with query: $searchQuery")
 
-                // Determine search field based on query length
-                val searchField = if (searchQuery.length == 8) "edpno" else "mno"
+                val normalizedQuery = searchQuery.trim()
+                // Five digits identify a member number; all other inputs are employee numbers.
+                val searchField = searchFieldFor(normalizedQuery)
                 Log.d(TAG, "Searching by field: $searchField")
 
                 val rows = client.from(TABLE_NAME)
                     .select() {
                         filter {
-                            eq(searchField, searchQuery)
+                            eq(searchField, normalizedQuery)
                         }
                     }
                     .decodeList<DividendEntry>()
@@ -40,7 +45,7 @@ class MemberRepository {
                     val profileData = client.from(TABLE_NAME)
                         .select() {
                             filter {
-                                eq(searchField, searchQuery)
+                                eq(searchField, normalizedQuery)
                             }
                             limit(1)
                         }
@@ -81,13 +86,13 @@ class MemberRepository {
     suspend fun getMemberByQrCode(qrCode: String): Result<Member?> {
         return withContext(Dispatchers.IO) {
             try {
-                // Determine search field based on qrCode length
-                val searchField = if (qrCode.length == 8) "edpno" else "mno"
+                val normalizedQrCode = qrCode.trim()
+                val searchField = searchFieldFor(normalizedQrCode)
 
                 val rows = client.from(TABLE_NAME)
                     .select() {
                         filter {
-                            eq(searchField, qrCode)
+                            eq(searchField, normalizedQrCode)
                         }
                     }
                     .decodeList<DividendEntry>()
@@ -96,7 +101,7 @@ class MemberRepository {
                     val profileData = client.from(TABLE_NAME)
                         .select() {
                             filter {
-                                eq(searchField, qrCode)
+                                eq(searchField, normalizedQrCode)
                             }
                             limit(1)
                         }
@@ -133,6 +138,85 @@ class MemberRepository {
                     }
                 Result.success(Unit)
             } catch (e: Exception) {
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun getMembersByGroupQrId(qrId: String): Result<BulkGroup?> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val rows = client.from(TABLE_NAME)
+                    .select(columns = Columns.list(
+                        "sno",
+                        "mno",
+                        "edpno",
+                        "name",
+                        "station",
+                        "scan_date",
+                        "sweet_issuer_mobile",
+                        "group_id",
+                        "group_qr_id"
+                    )) {
+                        filter { eq("group_qr_id", qrId) }
+                    }
+                    .decodeList<Member>()
+
+                val first = rows.firstOrNull() ?: return@withContext Result.success(null)
+                val groupId = first.groupId ?: return@withContext Result.success(null)
+
+                val members = rows
+                    .groupBy { it.memberNumber }
+                    .values
+                    .map { records ->
+                        val profile = records.first()
+                        val scannedRecord = records.firstOrNull { !it.scannerDate.isNullOrBlank() }
+                        if (scannedRecord == null) profile else profile.copy(
+                            scannerDate = scannedRecord.scannerDate,
+                            scannerNumber = scannedRecord.scannerNumber
+                        )
+                    }
+                    .sortedWith(
+                        compareBy<Member> { it.memberNumber?.toIntOrNull() ?: Int.MAX_VALUE }
+                            .thenBy { it.memberNumber.orEmpty() }
+                    )
+
+                Result.success(BulkGroup(groupId = groupId, qrId = qrId, members = members))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching group: ${e.message}", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun updateGroupScanInfo(
+        groupId: String,
+        memberNumbers: List<String>,
+        scannerNumber: String
+    ): Result<String> {
+        return withContext(Dispatchers.IO) {
+            try {
+                require(memberNumbers.isNotEmpty()) { "Select at least one member" }
+                val currentDateTime = SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm:ss",
+                    Locale.getDefault()
+                ).format(Date())
+                val update = MemberUpdate(
+                    scannerNumber = scannerNumber,
+                    scannerDate = currentDateTime
+                )
+
+                client.from(TABLE_NAME)
+                    .update(update) {
+                        filter {
+                            eq("group_id", groupId)
+                            isIn("mno", memberNumbers.distinct())
+                        }
+                    }
+
+                Result.success(currentDateTime)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error issuing group members: ${e.message}", e)
                 Result.failure(e)
             }
         }

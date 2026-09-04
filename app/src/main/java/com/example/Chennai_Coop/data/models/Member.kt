@@ -32,12 +32,17 @@ data class Member(
     @SerialName("token_issuer") val issuerNumber: String? = null, // Using token_issuer for Issue Phone
     @SerialName("sweet_issuer_mobile") val scannerNumber: String? = null, // Using sweet_issuer_mobile for Scan Phone
     @SerialName("scan_date") val scannerDate: String? = null,
+    @SerialName("group_id") val groupId: String? = null,
+    @SerialName("group_qr_id") val groupQrId: String? = null,
 
     // This list will contain the rows themselves (including this one) to show history
     val dividend: List<DividendEntry> = emptyList()
 ) {
     val isIssued: Boolean
-        get() = !scannerDate.isNullOrEmpty()
+        get() = !issueDate.isNullOrBlank()
+
+    val isScanned: Boolean
+        get() = !scannerDate.isNullOrBlank()
 }
 
 // This matches the single table structure as well
@@ -77,4 +82,10 @@ data class MemberUpdate(
     // Mapping scanner updates
     @SerialName("sweet_issuer_mobile") val scannerNumber: String? = null,
     @SerialName("scan_date") val scannerDate: String? = null
+)
+
+data class BulkGroup(
+    val groupId: String,
+    val qrId: String,
+    val members: List<Member>
 )

@@ -24,6 +24,9 @@ class ReportViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
         private set
 
+    var isPullRefreshing by mutableStateOf(false)
+        private set
+
     var errorMessage by mutableStateOf<String?>(null)
         private set
 
@@ -34,13 +37,12 @@ class ReportViewModel : ViewModel() {
     val totalIssued: Int
         get() = reportList.sumOf { it.issueCount }
 
-    init {
-        loadReportData()
-    }
+    fun loadReportData(isPullRefresh: Boolean = false) {
+        if (isLoading) return
 
-    fun loadReportData() {
         viewModelScope.launch {
             isLoading = true
+            isPullRefreshing = isPullRefresh
             errorMessage = null
 
             // UPDATED: Call getTotalReport instead of Daily
@@ -54,6 +56,7 @@ class ReportViewModel : ViewModel() {
             }
 
             isLoading = false
+            isPullRefreshing = false
         }
     }
 

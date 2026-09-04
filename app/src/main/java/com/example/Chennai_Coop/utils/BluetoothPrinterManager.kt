@@ -45,6 +45,9 @@ class BluetoothPrinterManager(private val context: Context) {
     private val _scannedDevices = MutableStateFlow<List<BluetoothDevice>>(emptyList())
     val scannedDevices = _scannedDevices.asStateFlow()
 
+    private val _connectedDevice = MutableStateFlow<BluetoothDevice?>(null)
+    val connectedDevice = _connectedDevice.asStateFlow()
+
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             when (intent.action) {
@@ -132,6 +135,7 @@ class BluetoothPrinterManager(private val context: Context) {
 
                 btSocket = socket
                 outStream = socket.outputStream
+                _connectedDevice.value = device
                 Log.d(TAG, "Connected successfully")
                 return@withContext true
 
@@ -145,6 +149,7 @@ class BluetoothPrinterManager(private val context: Context) {
 
                     btSocket = socket
                     outStream = socket.outputStream
+                    _connectedDevice.value = device
                     Log.d(TAG, "Fallback connect successful")
                     return@withContext true
                 } catch (e2: Exception) {
@@ -204,6 +209,7 @@ class BluetoothPrinterManager(private val context: Context) {
         } finally {
             btSocket = null
             outStream = null
+            _connectedDevice.value = null
         }
     }
 

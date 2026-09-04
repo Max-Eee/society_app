@@ -17,8 +17,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.FlashOff
-import androidx.compose.material.icons.rounded.FlashOn
+import androidx.compose.material.icons.rounded.FlashlightOff
+import androidx.compose.material.icons.rounded.FlashlightOn
 import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -46,6 +46,7 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
 @Composable
@@ -56,6 +57,9 @@ fun QRCodeScannerView(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+    val analyzerExecutor = remember { Executors.newSingleThreadExecutor() }
+    val barcodeScanner = remember { BarcodeScanning.getClient() }
+    val isDisposed = remember { AtomicBoolean(false) }
 
     // --- State ---
     var torchEnabled by remember { mutableStateOf(false) }
@@ -82,8 +86,14 @@ fun QRCodeScannerView(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            isDisposed.set(true)
             lifecycleOwner.lifecycle.removeObserver(observer)
             try { cameraControl?.enableTorch(false) } catch (e: Exception) {}
+            if (cameraProviderFuture.isDone) {
+                try { cameraProviderFuture.get().unbindAll() } catch (_: Exception) {}
+            }
+            try { barcodeScanner.close() } catch (_: Exception) {}
+            analyzerExecutor.shutdownNow()
         }
     }
 
@@ -122,10 +132,9 @@ fun QRCodeScannerView(
             AndroidView(
                 factory = { ctx ->
                     val previewView = PreviewView(ctx)
-                    val executor = Executors.newSingleThreadExecutor()
-                    val barcodeScanner = BarcodeScanning.getClient()
 
                     cameraProviderFuture.addListener({
+                        if (isDisposed.get()) return@addListener
                         val cameraProvider = cameraProviderFuture.get()
                         val preview = Preview.Builder().build().also {
                             it.setSurfaceProvider(previewView.surfaceProvider)
@@ -135,7 +144,7 @@ fun QRCodeScannerView(
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
                             .also {
-                                it.setAnalyzer(executor) { imageProxy ->
+                                it.setAnalyzer(analyzerExecutor) { imageProxy ->
                                     val mediaImage = imageProxy.image
                                     if (mediaImage != null) {
                                         val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
@@ -244,7 +253,7 @@ fun QRCodeScannerView(
                         Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Scan QR before issuing",
+                            text = "Scan member or group QR",
                             style = MaterialTheme.typography.labelLarge,
                             color = Color.White
                         )
@@ -260,8 +269,8 @@ fun QRCodeScannerView(
                         .clip(CircleShape)
                 ) {
                     Icon(
-                        imageVector = if (torchEnabled) Icons.Rounded.FlashOn else Icons.Rounded.FlashOff,
-                        contentDescription = "Toggle Flash",
+                        imageVector = if (torchEnabled) Icons.Rounded.FlashlightOn else Icons.Rounded.FlashlightOff,
+                        contentDescription = "Toggle torch",
                         tint = if (torchEnabled) Color(0xFFFFD600) else Color.White
                     )
                 }

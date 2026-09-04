@@ -1,5 +1,10 @@
 package com.example.Chennai_Coop.ui.screens
 
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +22,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -31,7 +37,7 @@ fun ReportScreen(
     viewModel: ReportViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
-    // 1. Auto-refresh when the screen (tab) opens
+    // Reload whenever this tab enters the composition.
     LaunchedEffect(Unit) {
         viewModel.loadReportData()
     }
@@ -42,8 +48,10 @@ fun ReportScreen(
     Scaffold { innerPadding ->
         // 2. Wrap content in PullToRefreshBox
         PullToRefreshBox(
-            isRefreshing = viewModel.isLoading,
-            onRefresh = { viewModel.loadReportData() },
+            // Automatic tab-entry loads use the shimmer only. The circular indicator
+            // is reserved for a refresh initiated by the pull gesture.
+            isRefreshing = viewModel.isPullRefreshing,
+            onRefresh = { viewModel.loadReportData(isPullRefresh = true) },
             state = pullRefreshState,
             modifier = Modifier
                 .padding(innerPadding)
@@ -70,12 +78,10 @@ fun ReportScreen(
                     }
                 }
 
-                // Main Content Logic
-                // We check list empty state here.
-                // Note: We do NOT use a separate 'isLoading' check to hide content
-                // because PullToRefresh displays the loading indicator *over* the content.
-
-                if (!viewModel.isLoading && viewModel.reportList.isEmpty()) {
+                // Every tab-entry or pull-to-refresh load uses the same shimmer state.
+                if (viewModel.isLoading) {
+                    ReportLoadingShimmer()
+                } else if (!viewModel.isLoading && viewModel.reportList.isEmpty()) {
                     // --- Empty State ---
                     // IMPORTANT: We add verticalScroll here so the user can still
                     // perform the "swipe down" gesture even when the list is empty.
@@ -145,6 +151,50 @@ fun ReportScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReportLoadingShimmer() {
+    val transition = rememberInfiniteTransition(label = "report-shimmer")
+    val alpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.75f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "report-shimmer-alpha"
+    )
+    val placeholderColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(132.dp)
+                .background(placeholderColor, RoundedCornerShape(24.dp))
+        )
+        Box(
+            modifier = Modifier
+                .padding(start = 4.dp, top = 8.dp)
+                .width(120.dp)
+                .height(20.dp)
+                .background(placeholderColor, RoundedCornerShape(8.dp))
+        )
+        repeat(3) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .background(placeholderColor, RoundedCornerShape(16.dp))
+            )
         }
     }
 }

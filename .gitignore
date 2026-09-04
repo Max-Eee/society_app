@@ -79,6 +79,9 @@ lint-baseline.xml
 # Android Profiling
 *.hprof
 
+# Temporary PDF visual-QA renders
+output
+
 # OS-specific files
 .DS_Store
 .DS_Store?

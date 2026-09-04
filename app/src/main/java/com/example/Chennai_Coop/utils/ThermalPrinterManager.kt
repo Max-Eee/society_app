@@ -218,8 +218,8 @@ class ThermalPrinterManager(private val context: Context) {
 
         builder.append("\u001D\u0021\u0001") // Double Width/Height
         builder.append("\u001B\u0045\u0001") // Bold On
-        builder.append("AAI (NAD) EMPLOYEES\n")
-        builder.append("CO-OP THRIFT & CREDIT SOCIETY LIMITED (G.S.49)\n")
+        builder.append("Chennai Corporation \n")
+        builder.append("Offical Society LIMITED - 5.125\n")
         builder.append("\u001D\u0021\u0000") // Normal Size
         builder.append("\u001B\u0045\u0000") // Bold Off
 
@@ -271,7 +271,7 @@ class ThermalPrinterManager(private val context: Context) {
             builder.append("------------------------------------------------\n")
 
             // Headers
-            builder.append(formatThreeColumns("Share Capital", "Thrift Dep", "F.W Deposit"))
+            builder.append(formatThreeColumns("Share Capital", "Thrift Dep", "F.D"))
 
             builder.append("------------------------------------------------\n")
 
@@ -412,6 +412,93 @@ class ThermalPrinterManager(private val context: Context) {
                 onSuccess()
             } catch (e: Exception) {
                 Log.e(TAG, "Error in printViaBluetooth: ${e.message}", e)
+                onError("Error: ${e.message}")
+            }
+        }
+    }
+
+    /** Prints the members recorded by one bulk scan. */
+    fun printBulkScan(
+        groupId: String,
+        members: List<Member>,
+        scannedAt: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                if (members.isEmpty()) {
+                    onError("No scanned members to print")
+                    return@launch
+                }
+
+                if (!bluetoothManager.isConnected()) {
+                    val printers = bluetoothManager.getPairedDevices()
+                    if (printers.isEmpty()) {
+                        onError("No paired Bluetooth printers found.")
+                        return@launch
+                    }
+                    val printer = printers.find { device ->
+                        val name = device.name.orEmpty()
+                        name.contains("MPT", ignoreCase = true) ||
+                                name.contains("printer", ignoreCase = true) ||
+                                name.contains("POS", ignoreCase = true)
+                    } ?: printers.first()
+
+                    if (!bluetoothManager.connect(printer)) {
+                        onError("Failed to connect to printer")
+                        return@launch
+                    }
+                }
+
+                val orderedMembers = members.sortedWith(
+                    compareBy<Member> { it.memberNumber?.toIntOrNull() ?: Int.MAX_VALUE }
+                        .thenBy { it.memberNumber.orEmpty() }
+                )
+                fun boxedCenteredLine(text: String): String {
+                    val innerWidth = 46
+                    val value = text.take(innerWidth)
+                    val leftPadding = (innerWidth - value.length) / 2
+                    val rightPadding = innerWidth - value.length - leftPadding
+                    return "|${" ".repeat(leftPadding)}$value${" ".repeat(rightPadding)}|\n"
+                }
+                val receipt = buildString {
+                    append("\u001B@")
+                    append("\u001Ba\u0001")
+                    append("\u001D\u0021\u0001")
+                    append("\u001B\u0045\u0001")
+                    append("Chennai Corporation \n")
+                    append("Offical Society LIMITED - 5.125\n")
+                    append("\u001D\u0021\u0000")
+                    append("\u001B\u0045\u0000")
+                    append("------------------------------------------------\n")
+                    append("\u001B\u0045\u0001")
+                    append("BULK SWEET SCAN\n")
+                    append("\u001B\u0045\u0000")
+                    append("Group: $groupId\n")
+                    append("Issue Date: ${formatShortDate(scannedAt)}\n")
+                    append("------------------------------------------------\n")
+                    append("\u001Ba\u0000")
+                    append(String.format("%-5s%-9s%-34s\n", "SNO", "MNO", "NAME"))
+                    append("------------------------------------------------\n")
+                    orderedMembers.forEachIndexed { index, member ->
+                        val sno = (index + 1).toString()
+                        val mno = member.memberNumber.orEmpty().take(8)
+                        val name = member.name.orEmpty().replace("\n", " ").take(33)
+                        append(String.format("%-5s%-9s%-34s\n", sno, mno, name))
+                    }
+                    append("------------------------------------------------\n")
+                    append("+----------------------------------------------+\n")
+                    append(boxedCenteredLine("TOTAL SCANNED"))
+                    append(boxedCenteredLine(orderedMembers.size.toString()))
+                    append("+----------------------------------------------+\n")
+                    append("\n\n\n\u001DVA\u0003")
+                }
+
+                if (bluetoothManager.print(receipt)) onSuccess()
+                else onError("Failed to print scanned member list")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error printing bulk scan: ${e.message}", e)
                 onError("Error: ${e.message}")
             }
         }

@@ -10,6 +10,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,11 +25,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.Chennai_Coop.data.models.BulkGroup
 import com.example.Chennai_Coop.ui.components.QRCodeScannerView
 import com.example.Chennai_Coop.ui.viewmodel.ScanStatus
 import com.example.Chennai_Coop.ui.viewmodel.ScanViewModel
+import com.example.Chennai_Coop.utils.ThermalPrinterManager
 import com.google.android.gms.auth.api.identity.GetPhoneNumberHintIntentRequest
 import com.google.android.gms.auth.api.identity.Identity
 import java.text.SimpleDateFormat
@@ -53,6 +58,7 @@ private fun formatDisplayDate(dateString: String?): String {
 
 @Composable
 fun ScanScreen(
+    thermalPrinterManager: ThermalPrinterManager,
     viewModel: ScanViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
@@ -90,7 +96,9 @@ fun ScanScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        if (!hasScanned) {
+        // The ViewModel survives tab switches while this local flag does not. Keep the
+        // camera hidden whenever a scan result (including a bulk group) is still open.
+        if (!hasScanned && viewModel.scanStatus is ScanStatus.Idle) {
             QRCodeScannerView(
                 onQRCodeScanned = { qrCode ->
                     if (!hasScanned) {
@@ -124,7 +132,7 @@ fun ScanScreen(
                     ResultSheet(
                         icon = Icons.Rounded.CheckCircle,
                         iconColor = Color(0xFF4CAF50), // Green
-                        title = "Issue Sweet",
+                        title = "Sweet Scanned",
                         member = status.member,
                         statusMessage = "Verified Successfully",
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
@@ -140,13 +148,30 @@ fun ScanScreen(
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
                     )
                 }
-                is ScanStatus.AlreadyIssued -> {
-                    ResultSheet(
-                        icon = Icons.Rounded.Info,
-                        iconColor = Color(0xFF2196F3), // Blue
-                        title = "Issued Only",
-                        member = status.member,
-                        statusMessage = "Not yet scanned at gate",
+                is ScanStatus.BulkGroupReady -> {
+                    BulkGroupSheet(
+                        group = status.group,
+                        selectedMemberNumbers = viewModel.selectedBulkMemberNumbers,
+                        onToggle = viewModel::toggleBulkMember,
+                        onToggleAll = viewModel::toggleAllBulkMembers,
+                        onScan = { viewModel.scanSelectedGroupMembers(context, thermalPrinterManager) },
+                        onDismiss = { hasScanned = false; viewModel.resetScan() }
+                    )
+                }
+                is ScanStatus.BulkScanning -> {
+                    BulkProgressSheet(status.groupId, status.selectedCount)
+                }
+                is ScanStatus.BulkScanned -> {
+                    BulkScannedSheet(
+                        status = status,
+                        printMessage = viewModel.bulkPrintMessage,
+                        onDismiss = { hasScanned = false; viewModel.resetScan() }
+                    )
+                }
+                is ScanStatus.BulkAllScanned -> {
+                    BulkAllScannedSheet(
+                        groupId = status.groupId,
+                        memberCount = status.memberCount,
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
                     )
                 }
@@ -222,7 +247,7 @@ fun ResultSheet(
             Spacer(modifier = Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 DataColumn("Employee No", member.employeeNumber ?: "N/A")
-                DataColumn("Issued", formatDisplayDate(member.issueDate), alignment = Alignment.End)
+                DataColumn("Scanned", formatDisplayDate(member.scannerDate), alignment = Alignment.End)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -276,5 +301,173 @@ fun DataColumn(label: String, value: String, alignment: Alignment.Horizontal = A
     Column(horizontalAlignment = alignment) {
         Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun BulkGroupSheet(
+    group: BulkGroup,
+    selectedMemberNumbers: Set<String>,
+    onToggle: (com.example.Chennai_Coop.data.models.Member) -> Unit,
+    onToggleAll: () -> Unit,
+    onScan: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        tonalElevation = 8.dp,
+        shadowElevation = 10.dp
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("Bulk sweet scan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "Group ID: ${group.groupId}",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text("${group.members.size} members", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
+
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                Text("Sno", Modifier.width(42.dp), fontWeight = FontWeight.Bold)
+                Text("Mno", Modifier.width(70.dp), fontWeight = FontWeight.Bold)
+                Text("Name", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                Text("Select", fontWeight = FontWeight.Bold)
+            }
+            HorizontalDivider(Modifier.padding(vertical = 6.dp))
+
+            LazyColumn(Modifier.weight(1f)) {
+                itemsIndexed(
+                    items = group.members,
+                    key = { index, member -> member.memberNumber ?: "member-$index" }
+                ) { index, member ->
+                    val memberNumber = member.memberNumber.orEmpty()
+                    val scanned = !member.scannerDate.isNullOrBlank()
+                    val decoration = if (scanned) TextDecoration.LineThrough else TextDecoration.None
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text((index + 1).toString(), Modifier.width(42.dp), textDecoration = decoration)
+                        Text(memberNumber, Modifier.width(70.dp), textDecoration = decoration)
+                        Column(Modifier.weight(1f).padding(end = 4.dp)) {
+                            Text(member.name.orEmpty(), textDecoration = decoration, maxLines = 2)
+                            if (scanned) {
+                                Text(
+                                    "Scanned ${formatDisplayDate(member.scannerDate)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Checkbox(
+                            checked = memberNumber in selectedMemberNumbers,
+                            enabled = !scanned && memberNumber.isNotBlank(),
+                            onCheckedChange = { onToggle(member) }
+                        )
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+            }
+
+            val selectableCount = group.members.count {
+                it.scannerDate.isNullOrBlank() && !it.memberNumber.isNullOrBlank()
+            }
+            val allSelected = selectableCount > 0 && selectedMemberNumbers.size == selectableCount
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    "${selectedMemberNumbers.size} member${if (selectedMemberNumbers.size == 1) "" else "s"} selected",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                TextButton(onClick = onToggleAll, enabled = selectableCount > 0) {
+                    Text(if (allSelected) "Deselect all" else "Select all")
+                }
+            }
+            Button(
+                onClick = onScan,
+                enabled = selectedMemberNumbers.isNotEmpty(),
+                modifier = Modifier.fillMaxWidth().height(50.dp)
+            ) {
+                Text("Scan ${selectedMemberNumbers.size} selected")
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Scan another QR") }
+        }
+    }
+}
+
+@Composable
+private fun BulkProgressSheet(groupId: String, selectedCount: Int) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        shape = RoundedCornerShape(28.dp),
+        tonalElevation = 8.dp
+    ) {
+        Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator()
+            Spacer(Modifier.height(16.dp))
+            Text("Scanning $selectedCount members", style = MaterialTheme.typography.titleLarge)
+            Text("Group $groupId")
+        }
+    }
+}
+
+@Composable
+private fun BulkScannedSheet(
+    status: ScanStatus.BulkScanned,
+    printMessage: String?,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        shape = RoundedCornerShape(28.dp),
+        tonalElevation = 8.dp,
+        shadowElevation = 10.dp
+    ) {
+        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Rounded.CheckCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(56.dp))
+            Spacer(Modifier.height(12.dp))
+            Text("Bulk scan complete", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Group ${status.groupId}")
+            Spacer(Modifier.height(16.dp))
+            Text("${status.scannedMembers.size} members scanned now", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("${status.totalScanned} of ${status.totalMembers} members scanned in total")
+            Text("Scanned ${formatDisplayDate(status.scannedAt)}")
+            printMessage?.let {
+                Spacer(Modifier.height(8.dp))
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Scan Next") }
+        }
+    }
+}
+
+@Composable
+private fun BulkAllScannedSheet(groupId: String, memberCount: Int, onDismiss: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        shape = RoundedCornerShape(28.dp),
+        tonalElevation = 8.dp
+    ) {
+        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Rounded.CheckCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(56.dp))
+            Spacer(Modifier.height(12.dp))
+            Text("Group complete", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(
+                "All members in group $groupId have already been scanned.",
+                style = MaterialTheme.typography.titleMedium,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Text("$memberCount members", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Scan Next") }
+        }
     }
 }

@@ -550,7 +550,7 @@ fun MemberDetailsCard(member: Member) {
                     modifier = Modifier.padding(top = 8.dp)
                 )
                 FinancialTable3Col(
-                    headers = listOf("Share Capital", "Thrift Deposit", "F.W Deposit"),
+                    headers = listOf("Share Capital", "Thrift Deposit", "F.D"),
                     values = listOf(
                         "₹${(member.shareCapital ?: 0.0).toInt()}",
                         "₹${(member.thriftDeposit ?: 0.0).toInt()}",

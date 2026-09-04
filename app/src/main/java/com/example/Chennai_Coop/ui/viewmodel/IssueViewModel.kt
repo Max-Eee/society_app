@@ -97,26 +97,22 @@ class IssueViewModel : ViewModel() {
             return
         }
 
-        // Validate search query length
-        val queryLength = searchQuery.trim().length
-        if (queryLength > 4 && queryLength != 8) {
-            errorMessage = "Invalid number: Member numbers are 1-4 digits, Employee numbers must be exactly 8 digits"
-            return
-        }
+        val normalizedQuery = searchQuery.trim()
+        val isMemberNumber = normalizedQuery.length == 5 && normalizedQuery.all(Char::isDigit)
 
         viewModelScope.launch {
             isLoading = true
             errorMessage = null
             try {
-                val result = repository.searchMemberByNumber(searchQuery.trim())
+                val result = repository.searchMemberByNumber(normalizedQuery)
                 result.onSuccess { foundMember ->
                     if (foundMember != null) {
                         member = foundMember
                         errorMessage = null
                     } else {
                         member = null
-                        val numberType = if (queryLength == 8) "employee" else "member"
-                        errorMessage = "No $numberType found with number: $searchQuery"
+                        val numberType = if (isMemberNumber) "member" else "employee"
+                        errorMessage = "No $numberType found with number: $normalizedQuery"
                     }
                 }.onFailure { exception ->
                     member = null
