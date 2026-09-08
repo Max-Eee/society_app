@@ -80,10 +80,10 @@ Generate a single group while checking the layout:
 ./generate-group-pdfs.cmd --group-id EDHS013
 ```
 
-Override meeting details when required:
+The default society and meeting details are shared with the Android app in `app/src/main/assets/event_config.json`. Command-line values can still override them for a one-off PDF:
 
 ```bash
-./generate-group-pdfs.cmd --meeting-date "12/01/2026 at 11:00 AM" --venue "Conference Hall, Admin Building"
+./generate-group-pdfs.cmd --meeting-date "08-10-2026 at 9:30 a.m" --venue "Conference Hall. Amma Maligai"
 ```
 
 Files are written to `output/pdf/group-forms`. The QR stores an opaque per-group UUID plus an HMAC signature; it does not expose the station-derived group ID.

@@ -32,6 +32,7 @@ data class Member(
     @SerialName("token_issuer") val issuerNumber: String? = null, // Using token_issuer for Issue Phone
     @SerialName("sweet_issuer_mobile") val scannerNumber: String? = null, // Using sweet_issuer_mobile for Scan Phone
     @SerialName("scan_date") val scannerDate: String? = null,
+    @SerialName("scan_batch_id") val scanBatchId: String? = null,
     @SerialName("group_id") val groupId: String? = null,
     @SerialName("group_qr_id") val groupQrId: String? = null,
 
@@ -43,6 +44,36 @@ data class Member(
 
     val isScanned: Boolean
         get() = !scannerDate.isNullOrBlank()
+
+    val isAccountClosed: Boolean
+        get() = station.isAccountClosedStation() ||
+                dividend.any { it.station.isAccountClosedStation() }
+
+    val isNoDemand: Boolean
+        get() = station.isNoDemandStation() ||
+                dividend.any { it.station.isNoDemandStation() }
+
+    val isEligibleForQr: Boolean
+        get() = !isAccountClosed && !isNoDemand
+
+    val qrIneligibilityLabel: String?
+        get() = when {
+            isAccountClosed -> "A/C CLOSED"
+            isNoDemand -> "NO DEMAND"
+            else -> null
+        }
+}
+
+private fun String?.isAccountClosedStation(): Boolean {
+    val value = this?.trim().orEmpty()
+    return value.equals("A/C Closed", ignoreCase = true) ||
+            value.equals("A/C Closed, No Demand", ignoreCase = true)
+}
+
+private fun String?.isNoDemandStation(): Boolean {
+    val value = this?.trim().orEmpty()
+    return value.equals("No Demand", ignoreCase = true) ||
+            value.equals("A/C Closed, No Demand", ignoreCase = true)
 }
 
 // This matches the single table structure as well
@@ -81,11 +112,28 @@ data class MemberUpdate(
 
     // Mapping scanner updates
     @SerialName("sweet_issuer_mobile") val scannerNumber: String? = null,
-    @SerialName("scan_date") val scannerDate: String? = null
+    @SerialName("scan_date") val scannerDate: String? = null,
+    @SerialName("scan_batch_id") val scanBatchId: String? = null
 )
 
 data class BulkGroup(
     val groupId: String,
     val qrId: String,
     val members: List<Member>
+)
+
+data class BulkScanBatch(
+    val id: String,
+    val groupId: String,
+    val scannedAt: String,
+    val scannerNumber: String,
+    val members: List<Member>
+) {
+    val displayNumber: String
+        get() = "B-${id.substringBefore('-').uppercase()}"
+}
+
+data class BulkScanWriteResult(
+    val scannedAt: String,
+    val batchId: String
 )

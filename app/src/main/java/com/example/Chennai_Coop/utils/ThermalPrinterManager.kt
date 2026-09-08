@@ -29,6 +29,7 @@ class ThermalPrinterManager(
 ) {
 
     private val TAG = "ThermalPrinter"
+    private val eventConfig by lazy { EventConfig.load(context) }
     // --- SECURITY CONFIGURATION ---
     private val SECRET_KEY = "s0c1ety_Sup3r_S3cr3t_K3y_@2024"
 
@@ -85,6 +86,14 @@ class ThermalPrinterManager(
         sb.append(value)
         sb.append("\n")
         return sb.toString()
+    }
+
+    private fun StringBuilder.appendSocietyHeader() {
+        append("\u001D\u0021\u0001") // Double size
+        append("\u001B\u0045\u0001") // Bold on
+        eventConfig.societyNameLines.forEach { line -> append("$line\n") }
+        append("\u001D\u0021\u0000") // Normal size
+        append("\u001B\u0045\u0000") // Bold off
     }
 
     // --- HELPER: Date Formatting ---
@@ -208,17 +217,6 @@ class ThermalPrinterManager(
 
     // --- LOGIC ---
 
-    private fun isMemberAccountClosed(member: Member): Boolean {
-        val station = member.station?.trim().orEmpty()
-        if (station.equals("A/C Closed, No Demand", ignoreCase = true)) return true
-
-        val sno = member.sno?.toString()?.trim() ?: ""
-        if (sno.equals("A/C Closed", ignoreCase = true)) return true
-        val dividendStatus = member.dividend.firstOrNull()?.serialNumber?.toString()?.trim() ?: ""
-        if (dividendStatus.equals("A/C Closed", ignoreCase = true)) return true
-        return false
-    }
-
     fun formatPrintData(member: Member): String {
         val builder = StringBuilder()
 
@@ -226,20 +224,15 @@ class ThermalPrinterManager(
         builder.append("\u001B@") // Reset
         builder.append("\u001Ba\u0001") // Align Center
 
-        builder.append("\u001D\u0021\u0001") // Double Width/Height
-        builder.append("\u001B\u0045\u0001") // Bold On
-        builder.append("Chennai Corporation \n")
-        builder.append("Offical Society LIMITED - 5.125\n")
-        builder.append("\u001D\u0021\u0000") // Normal Size
-        builder.append("\u001B\u0045\u0000") // Bold Off
+        builder.appendSocietyHeader()
 
         // G.B MEETING NOTICE
         builder.append("------------------------------------------------\n")
         builder.append("\u001B\u0045\u0001") // Bold On
-        builder.append("G.B MEETING NOTICE\n")
+        builder.append("${eventConfig.meetingTitle}\n")
         builder.append("\u001B\u0045\u0000") // Bold Off
-        builder.append("Date: 12/01/2026 at 11:00 am\n")
-        builder.append("Venue: Conference Hall, Admin Building\n")
+        builder.append("Date: ${eventConfig.meetingDate}\n")
+        builder.append("Venue   ${eventConfig.venue}\n")
         builder.append("------------------------------------------------\n")
 
         builder.append("\u001Ba\u0000") // Align Left
@@ -254,12 +247,12 @@ class ThermalPrinterManager(
         builder.append(" Station     : ${member.station ?: ""}\n")
 
         // 3. Account Closed Warning
-        if (isMemberAccountClosed(member)) {
+        if (!member.isEligibleForQr) {
             builder.append("\n")
             builder.append("\u001Ba\u0001") // Center
             builder.append("\u001D\u0021\u0001") // Double Size
             builder.append("\u001B\u0045\u0001") // Bold
-            builder.append("*** A/C CLOSED ***\n")
+            builder.append("*** ${member.qrIneligibilityLabel} ***\n")
             builder.append("\u001B\u0045\u0000")
             builder.append("\u001D\u0021\u0000")
             builder.append("\u001Ba\u0000") // Left
@@ -269,7 +262,7 @@ class ThermalPrinterManager(
         builder.append("------------------------------------------------\n")
 
         // Check if account is closed
-        val isClosed = isMemberAccountClosed(member)
+        val isClosed = member.isAccountClosed
 
         // --- 1. DEPOSIT DETAILS (Only show if account is not closed) ---
         if (!isClosed) {
@@ -404,7 +397,7 @@ class ThermalPrinterManager(
                 delay(500)
 
                 // --- GENERATE SECURE QR ---
-                if (!isMemberAccountClosed(member)) {
+                if (member.isEligibleForQr) {
                     val rawMemberId = member.memberNumber?.trim() ?: "0000"
                     val secureQrContent = generateSignedPayload(rawMemberId)
                     val qrBitmap = generateQRCode(secureQrContent, 350)
@@ -472,29 +465,24 @@ class ThermalPrinterManager(
                     val leftPadding = (innerWidth - value.length) / 2
                     val rightPadding = innerWidth - value.length - leftPadding
                     return buildString {
+                        append("\u001D\u0021\u0010") // Double height for the complete boxed row
+                        append("\u001B\u0045\u0001") // Bold on
                         append('|')
                         append(" ".repeat(leftPadding))
-                        append("\u001D\u0021\u0010") // Double height
-                        append("\u001B\u0045\u0001") // Bold on
                         append(value)
-                        append("\u001B\u0045\u0000") // Bold off
-                        append("\u001D\u0021\u0000") // Normal size
                         append(" ".repeat(rightPadding))
                         append("|\n")
+                        append("\u001B\u0045\u0000") // Bold off
+                        append("\u001D\u0021\u0000") // Normal size
                     }
                 }
-                val receipt = buildString {
+                fun buildReceiptCopy(copyLabel: String, includeTotalScanned: Boolean): String = buildString {
                     append("\u001B@")
                     append("\u001Ba\u0001")
-                    append("\u001D\u0021\u0001")
-                    append("\u001B\u0045\u0001")
-                    append("Chennai Corporation\n")
-                    append("Official Co-Operative Society Limited - 5125\n")
-                    append("\u001D\u0021\u0000")
-                    append("\u001B\u0045\u0000")
+                    appendSocietyHeader()
                     append("------------------------------------------------\n")
                     append("\u001B\u0045\u0001")
-                    append("BULK SWEET SCAN\n")
+                    append("BULK SWEET SCAN - $copyLabel\n")
                     append("\u001B\u0045\u0000")
                     append("Group: $groupId\n")
                     append("Issue Date: ${formatShortDate(scannedAt)}\n")
@@ -510,10 +498,20 @@ class ThermalPrinterManager(
                         append(String.format("%-5s%-9s%-34s\n", sno, mno, name))
                     }
                     append("------------------------------------------------\n")
-                    append("+----------------------------------------------+\n")
-                    append(boxedCenteredEmphasizedLine("TOTAL SCANNED"))
-                    append(boxedCenteredEmphasizedLine(orderedMembers.size.toString()))
-                    append("+----------------------------------------------+\n")
+                    if (includeTotalScanned) {
+                        append("+----------------------------------------------+\n")
+                        append(boxedCenteredEmphasizedLine("TOTAL SCANNED"))
+                        append(boxedCenteredEmphasizedLine(orderedMembers.size.toString()))
+                        append("+----------------------------------------------+\n")
+                    }
+                }
+
+                val receipt = buildString {
+                    append(buildReceiptCopy("OFFICE COPY", includeTotalScanned = true))
+                    append("\n\n\n")
+                    append("------------------ TEAR HERE ------------------\n")
+                    append("\n\n\n\n\n")
+                    append(buildReceiptCopy("MEMBER COPY", includeTotalScanned = false))
                     append("\n\n\n\u001DVA\u0003")
                 }
 
@@ -561,12 +559,7 @@ class ThermalPrinterManager(
                 val receipt = buildString {
                     append("\u001B@")
                     append("\u001Ba\u0001")
-                    append("\u001D\u0021\u0001")
-                    append("\u001B\u0045\u0001")
-                    append("Chennai Corporation \n")
-                    append("Offical Society LIMITED - 5.125\n")
-                    append("\u001D\u0021\u0000")
-                    append("\u001B\u0045\u0000")
+                    appendSocietyHeader()
                     append("------------------------------------------------\n")
                     append("\u001B\u0045\u0001")
                     append("ACTIVITY REPORT\n")

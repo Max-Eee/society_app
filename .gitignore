@@ -81,6 +81,8 @@ lint-baseline.xml
 
 # Temporary PDF visual-QA renders
 output
+tmp/
+__pycache__/
 
 # OS-specific files
 .DS_Store

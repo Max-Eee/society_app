@@ -3,6 +3,8 @@ package com.example.Chennai_Coop.data.repository
 import android.util.Log
 import com.example.Chennai_Coop.data.models.DividendEntry
 import com.example.Chennai_Coop.data.models.BulkGroup
+import com.example.Chennai_Coop.data.models.BulkScanBatch
+import com.example.Chennai_Coop.data.models.BulkScanWriteResult
 import com.example.Chennai_Coop.data.models.Member
 import com.example.Chennai_Coop.data.models.MemberUpdate
 import com.example.Chennai_Coop.data.remote.SupabaseClient
@@ -13,6 +15,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 class MemberRepository {
     private val client = SupabaseClient.client
@@ -154,6 +157,7 @@ class MemberRepository {
                         "name",
                         "station",
                         "scan_date",
+                        "scan_batch_id",
                         "sweet_issuer_mobile",
                         "group_id",
                         "group_qr_id"
@@ -173,7 +177,8 @@ class MemberRepository {
                         val scannedRecord = records.firstOrNull { !it.scannerDate.isNullOrBlank() }
                         if (scannedRecord == null) profile else profile.copy(
                             scannerDate = scannedRecord.scannerDate,
-                            scannerNumber = scannedRecord.scannerNumber
+                            scannerNumber = scannedRecord.scannerNumber,
+                            scanBatchId = scannedRecord.scanBatchId
                         )
                     }
                     .sortedWith(
@@ -193,7 +198,7 @@ class MemberRepository {
         groupId: String,
         memberNumbers: List<String>,
         scannerNumber: String
-    ): Result<String> {
+    ): Result<BulkScanWriteResult> {
         return withContext(Dispatchers.IO) {
             try {
                 require(memberNumbers.isNotEmpty()) { "Select at least one member" }
@@ -201,9 +206,11 @@ class MemberRepository {
                     "yyyy-MM-dd HH:mm:ss",
                     Locale.getDefault()
                 ).format(Date())
+                val batchId = UUID.randomUUID().toString()
                 val update = MemberUpdate(
                     scannerNumber = scannerNumber,
-                    scannerDate = currentDateTime
+                    scannerDate = currentDateTime,
+                    scanBatchId = batchId
                 )
 
                 client.from(TABLE_NAME)
@@ -214,9 +221,56 @@ class MemberRepository {
                         }
                     }
 
-                Result.success(currentDateTime)
+                Result.success(BulkScanWriteResult(currentDateTime, batchId))
             } catch (e: Exception) {
                 Log.e(TAG, "Error issuing group members: ${e.message}", e)
+                Result.failure(e)
+            }
+        }
+    }
+
+    suspend fun getGroupScanBatches(groupId: String): Result<List<BulkScanBatch>> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val rows = client.from(TABLE_NAME)
+                    .select(columns = Columns.list(
+                        "mno",
+                        "name",
+                        "group_id",
+                        "scan_date",
+                        "scan_batch_id",
+                        "sweet_issuer_mobile"
+                    )) {
+                        filter { eq("group_id", groupId) }
+                    }
+                    .decodeList<Member>()
+
+                val batches = rows
+                    .filter { !it.scanBatchId.isNullOrBlank() }
+                    .groupBy { it.scanBatchId.orEmpty() }
+                    .map { (batchId, batchRows) ->
+                        val first = batchRows.first()
+                        val members = batchRows
+                            .groupBy { it.memberNumber }
+                            .values
+                            .map { it.first() }
+                            .sortedWith(
+                                compareBy<Member> { it.memberNumber?.toIntOrNull() ?: Int.MAX_VALUE }
+                                    .thenBy { it.memberNumber.orEmpty() }
+                            )
+                        BulkScanBatch(
+                            id = batchId,
+                            groupId = first.groupId ?: groupId,
+                            scannedAt = first.scannerDate.orEmpty(),
+                            scannerNumber = first.scannerNumber.orEmpty(),
+                            members = members
+                        )
+                    }
+                    .sortedByDescending { it.scannedAt }
+
+                Result.success(batches)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error fetching scan batches: ${e.message}", e)
                 Result.failure(e)
             }
         }

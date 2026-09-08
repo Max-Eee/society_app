@@ -2,6 +2,7 @@ package com.example.Chennai_Coop.ui.screens
 
 import android.app.Activity
 import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,6 +10,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -16,6 +18,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.Chennai_Coop.data.models.BulkGroup
+import com.example.Chennai_Coop.data.models.BulkScanBatch
 import com.example.Chennai_Coop.ui.components.QRCodeScannerView
 import com.example.Chennai_Coop.ui.viewmodel.ScanStatus
 import com.example.Chennai_Coop.ui.viewmodel.ScanViewModel
@@ -97,6 +101,13 @@ fun ScanScreen(
         }
     }
 
+    val isBulkHistoryOpen = viewModel.scanStatus is ScanStatus.BulkBatchHistoryLoading ||
+            viewModel.scanStatus is ScanStatus.BulkBatchHistory ||
+            viewModel.scanStatus is ScanStatus.BulkBatchDetails
+    BackHandler(enabled = isBulkHistoryOpen) {
+        viewModel.navigateBackInBulkHistory()
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         // The ViewModel survives tab switches while this local flag does not. Keep the
         // camera hidden whenever a scan result (including a bulk group) is still open.
@@ -158,6 +169,7 @@ fun ScanScreen(
                         onToggle = viewModel::toggleBulkMember,
                         onToggleAll = viewModel::toggleAllBulkMembers,
                         onScan = { viewModel.scanSelectedGroupMembers(context, thermalPrinterManager) },
+                        onReprint = viewModel::openBulkBatchHistory,
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
                     )
                 }
@@ -165,17 +177,52 @@ fun ScanScreen(
                     BulkProgressSheet(status.groupId, status.selectedCount)
                 }
                 is ScanStatus.BulkScanned -> {
+                    val batch = BulkScanBatch(
+                        id = status.batchId,
+                        groupId = status.groupId,
+                        scannedAt = status.scannedAt,
+                        scannerNumber = status.scannerNumber,
+                        members = status.scannedMembers
+                    )
                     BulkScannedSheet(
                         status = status,
                         printMessage = viewModel.bulkPrintMessage,
+                        isPrinting = viewModel.reprintingBatchId == status.batchId,
+                        onReprint = { viewModel.reprintBulkBatch(batch, thermalPrinterManager) },
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
                     )
                 }
                 is ScanStatus.BulkAllScanned -> {
                     BulkAllScannedSheet(
-                        groupId = status.groupId,
-                        memberCount = status.memberCount,
+                        groupId = status.group.groupId,
+                        memberCount = status.group.members.size,
+                        onReprint = viewModel::openBulkBatchHistory,
                         onDismiss = { hasScanned = false; viewModel.resetScan() }
+                    )
+                }
+                is ScanStatus.BulkBatchHistoryLoading -> {
+                    BulkBatchHistoryLoadingScreen(
+                        groupId = status.group.groupId,
+                        onBack = viewModel::navigateBackInBulkHistory
+                    )
+                }
+                is ScanStatus.BulkBatchHistory -> {
+                    BulkBatchHistoryScreen(
+                        groupId = status.group.groupId,
+                        batches = status.batches,
+                        errorMessage = status.errorMessage,
+                        onBatchSelected = viewModel::showBulkBatch,
+                        onRetry = viewModel::openBulkBatchHistory,
+                        onBack = viewModel::navigateBackInBulkHistory
+                    )
+                }
+                is ScanStatus.BulkBatchDetails -> {
+                    BulkBatchDetailsScreen(
+                        batch = status.batch,
+                        isPrinting = viewModel.reprintingBatchId == status.batch.id,
+                        printMessage = viewModel.bulkPrintMessage,
+                        onReprint = { viewModel.reprintBulkBatch(status.batch, thermalPrinterManager) },
+                        onBack = viewModel::navigateBackInBulkHistory
                     )
                 }
                 is ScanStatus.Invalid -> {
@@ -348,6 +395,7 @@ private fun BulkGroupSheet(
     onToggle: (com.example.Chennai_Coop.data.models.Member) -> Unit,
     onToggleAll: () -> Unit,
     onScan: () -> Unit,
+    onReprint: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val memberListState = rememberLazyListState()
@@ -362,14 +410,27 @@ private fun BulkGroupSheet(
         shadowElevation = 10.dp
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text("Bulk sweet scan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text(
-                "Group ID: ${group.groupId}",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text("${group.members.size} members", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Bulk sweet scan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Group ID: ${group.groupId}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text("${group.members.size} members", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                FilledTonalButton(onClick = onReprint) {
+                    Icon(Icons.Rounded.Replay, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Reprint")
+                }
+            }
             Spacer(Modifier.height(12.dp))
 
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -538,9 +599,192 @@ private fun BulkProgressSheet(groupId: String, selectedCount: Int) {
 }
 
 @Composable
+private fun BulkBatchHistoryLoadingScreen(groupId: String, onBack: () -> Unit) {
+    Surface(Modifier.fillMaxSize(), tonalElevation = 8.dp) {
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back to group")
+                }
+                Column {
+                    Text("Reprint batches", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("Group $groupId", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text("Loading saved batches...")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BulkBatchHistoryScreen(
+    groupId: String,
+    batches: List<BulkScanBatch>,
+    errorMessage: String?,
+    onBatchSelected: (BulkScanBatch) -> Unit,
+    onRetry: () -> Unit,
+    onBack: () -> Unit
+) {
+    Surface(Modifier.fillMaxSize(), tonalElevation = 8.dp) {
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back to group")
+                }
+                Column {
+                    Text("Reprint batches", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("Group $groupId", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+
+            when {
+                errorMessage != null -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Rounded.ErrorOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.height(8.dp))
+                            Text(errorMessage, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = onRetry) { Text("Try again") }
+                        }
+                    }
+                }
+                batches.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            "No saved scan batches for this group yet.",
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                else -> {
+                    Text(
+                        "Select a batch to review its members and print two copies.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        itemsIndexed(batches, key = { _, batch -> batch.id }) { _, batch ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().clickable { onBatchSelected(batch) },
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(batch.displayNumber, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                        Text(formatDisplayDate(batch.scannedAt), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Issuer ${batch.scannerNumber.ifBlank { "Unknown" }}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(batch.members.size.toString(), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                        Text("members", style = MaterialTheme.typography.labelMedium)
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    Icon(Icons.Rounded.ChevronRight, contentDescription = "View batch")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BulkBatchDetailsScreen(
+    batch: BulkScanBatch,
+    isPrinting: Boolean,
+    printMessage: String?,
+    onReprint: () -> Unit,
+    onBack: () -> Unit
+) {
+    Surface(Modifier.fillMaxSize(), tonalElevation = 8.dp) {
+        Column(Modifier.fillMaxSize().padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back to batches")
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(batch.displayNumber, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text("Group ${batch.groupId}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(
+                    "${batch.members.size} members",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(formatDisplayDate(batch.scannedAt), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Issuer ${batch.scannerNumber.ifBlank { "Unknown" }}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(batch.id, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.height(12.dp))
+
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
+                Text("Sno", Modifier.width(48.dp), fontWeight = FontWeight.Bold)
+                Text("Mno", Modifier.width(80.dp), fontWeight = FontWeight.Bold)
+                Text("Name", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+            }
+            HorizontalDivider(Modifier.padding(vertical = 6.dp))
+            LazyColumn(Modifier.weight(1f)) {
+                itemsIndexed(
+                    batch.members,
+                    key = { index, member -> member.memberNumber ?: "batch-member-$index" }
+                ) { index, member ->
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+                        Text((index + 1).toString(), Modifier.width(48.dp))
+                        Text(member.memberNumber.orEmpty(), Modifier.width(80.dp), fontWeight = FontWeight.SemiBold)
+                        Text(member.name.orEmpty(), Modifier.weight(1f))
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+            }
+
+            printMessage?.let { message ->
+                Text(
+                    message,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = if (message.startsWith("Reprint failed")) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Button(
+                onClick = onReprint,
+                enabled = !isPrinting,
+                modifier = Modifier.fillMaxWidth().height(52.dp)
+            ) {
+                if (isPrinting) {
+                    CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Printing...")
+                } else {
+                    Icon(Icons.Rounded.Print, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Reprint two copies")
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun BulkScannedSheet(
     status: ScanStatus.BulkScanned,
     printMessage: String?,
+    isPrinting: Boolean,
+    onReprint: () -> Unit,
     onDismiss: () -> Unit
 ) {
     Surface(
@@ -570,18 +814,44 @@ private fun BulkScannedSheet(
             Spacer(Modifier.height(12.dp))
             Text("${status.totalScanned} of ${status.totalMembers} members scanned in total")
             Text("Scanned ${formatDisplayDate(status.scannedAt)}")
+            Text(
+                "Batch B-${status.batchId.substringBefore('-').uppercase()}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
             printMessage?.let {
                 Spacer(Modifier.height(8.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(20.dp))
+            OutlinedButton(
+                onClick = onReprint,
+                enabled = !isPrinting,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (isPrinting) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Printing...")
+                } else {
+                    Icon(Icons.Rounded.Print, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Print two copies again")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
             Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Scan Next") }
         }
     }
 }
 
 @Composable
-private fun BulkAllScannedSheet(groupId: String, memberCount: Int, onDismiss: () -> Unit) {
+private fun BulkAllScannedSheet(
+    groupId: String,
+    memberCount: Int,
+    onReprint: () -> Unit,
+    onDismiss: () -> Unit
+) {
     Surface(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         shape = RoundedCornerShape(28.dp),
@@ -590,6 +860,13 @@ private fun BulkAllScannedSheet(groupId: String, memberCount: Int, onDismiss: ()
         tonalElevation = 8.dp
     ) {
         Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.fillMaxWidth()) {
+                TextButton(onClick = onReprint, modifier = Modifier.align(Alignment.TopEnd)) {
+                    Icon(Icons.Rounded.Replay, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Reprint")
+                }
+            }
             Icon(
                 Icons.Rounded.Warning,
                 contentDescription = null,

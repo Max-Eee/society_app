@@ -505,18 +505,13 @@ fun MemberDetailsCard(member: Member) {
                         }
                     }
 
-                    val sno = member.sno?.toString()?.trim() ?: ""
-                    val divSno = member.dividend.firstOrNull()?.serialNumber?.toString()?.trim() ?: ""
-                    val isClosed = sno.equals("A/C Closed", ignoreCase = true) ||
-                            divSno.equals("A/C Closed", ignoreCase = true)
-
-                    if (isClosed) {
+                    if (!member.isEligibleForQr) {
                         Surface(
                             color = Color.Red,
                             shape = MaterialTheme.shapes.small
                         ) {
                             Text(
-                                text = "A/C CLOSED",
+                                text = member.qrIneligibilityLabel.orEmpty(),
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 style = MaterialTheme.typography.labelMedium,
@@ -536,13 +531,8 @@ fun MemberDetailsCard(member: Member) {
             DetailRow(label = "Station", value = member.station ?: "")
             HorizontalDivider()
 
-            val sno = member.sno?.toString()?.trim() ?: ""
-            val divSno = member.dividend.firstOrNull()?.serialNumber?.toString()?.trim() ?: ""
-            val isClosed = sno.equals("A/C Closed", ignoreCase = true) ||
-                    divSno.equals("A/C Closed", ignoreCase = true)
-
             // 1. DEPOSIT DETAILS (Only if account not closed)
-            if (!isClosed) {
+            if (!member.isAccountClosed) {
                 Text(
                     text = "Deposit Details",
                     style = MaterialTheme.typography.titleMedium,

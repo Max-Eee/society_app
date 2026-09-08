@@ -35,6 +35,7 @@ from reportlab.platypus import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SUPABASE_CLIENT = PROJECT_ROOT / "app/src/main/java/com/example/Chennai_Coop/data/remote/SupabaseClient.kt"
 SCAN_VIEW_MODEL = PROJECT_ROOT / "app/src/main/java/com/example/Chennai_Coop/ui/viewmodel/ScanViewModel.kt"
+EVENT_CONFIG = PROJECT_ROOT / "app/src/main/assets/event_config.json"
 
 
 def kotlin_constant(path: Path, name: str) -> str:
@@ -50,6 +51,10 @@ def load_configuration() -> tuple[str, str, str]:
     key = os.environ.get("CCOCS_SUPABASE_KEY") or kotlin_constant(SUPABASE_CLIENT, "SUPABASE_API_KEY")
     secret = os.environ.get("CCOCS_QR_SECRET") or kotlin_constant(SCAN_VIEW_MODEL, "SECRET_KEY")
     return url.rstrip("/"), key, secret
+
+
+def load_event_configuration() -> dict:
+    return json.loads(EVENT_CONFIG.read_text(encoding="utf-8"))
 
 
 def fetch_rows(base_url: str, key: str, group_id: str | None) -> list[dict]:
@@ -128,7 +133,7 @@ def build_pdf(output: Path, group_id: str, group: dict, args: argparse.Namespace
         f"<b>{html.escape(args.society_name)}</b>",
         html.escape(args.meeting_title),
         f"Date: {html.escape(args.meeting_date)}",
-        f"Venue: {html.escape(args.venue)}",
+        f"Venue&nbsp;&nbsp;&nbsp;{html.escape(args.venue)}",
         f"<b>Group ID: {html.escape(group_id)}</b>",
     ]
     header = Table(
@@ -192,14 +197,16 @@ def build_pdf(output: Path, group_id: str, group: dict, args: argparse.Namespace
 
 
 def parse_args() -> argparse.Namespace:
+    event = load_event_configuration()
+    society_name = " ".join(event["society_name_lines"])
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--group-id", help="Generate only one group, for example EDHS013")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "output/pdf/group-forms")
-    parser.add_argument("--society-name", default="Chennai Corporation Official Society Limited - 5.125")
-    parser.add_argument("--meeting-title", default="G.B. Meeting")
-    parser.add_argument("--meeting-date", default="12/01/2026 at 11:00 AM")
-    parser.add_argument("--venue", default="Conference Hall, Admin Building")
-    parser.add_argument("--event-title", default="Sweet List 2026")
+    parser.add_argument("--society-name", default=society_name)
+    parser.add_argument("--meeting-title", default=event["meeting_title"])
+    parser.add_argument("--meeting-date", default=event["meeting_date"])
+    parser.add_argument("--venue", default=event["venue"])
+    parser.add_argument("--event-title", default=event["event_title"])
     return parser.parse_args()
 
 

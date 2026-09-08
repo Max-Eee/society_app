@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.Chennai_Coop.data.models.BulkGroup
+import com.example.Chennai_Coop.data.models.BulkScanBatch
 import com.example.Chennai_Coop.data.models.Member
 import com.example.Chennai_Coop.data.repository.MemberRepository
 import com.example.Chennai_Coop.utils.PhoneNumberManager
@@ -49,6 +50,11 @@ class ScanViewModel : ViewModel() {
 
     var bulkPrintMessage by mutableStateOf<String?>(null)
         private set
+
+    var reprintingBatchId by mutableStateOf<String?>(null)
+        private set
+
+    private var loadedBulkBatches: List<BulkScanBatch> = emptyList()
 
     // --- HELPER: Clean Phone Number ---
     private fun cleanPhoneNumber(phone: String?): String {
@@ -193,11 +199,7 @@ class ScanViewModel : ViewModel() {
                                 .mapNotNull { it.memberNumber?.takeIf(String::isNotBlank) }
                                 .toSet()
                             bulkPrintMessage = null
-                            scanStatus = if (group.members.all(::hasMemberBeenScanned)) {
-                                ScanStatus.BulkAllScanned(group.groupId, group.members.size)
-                            } else {
-                                ScanStatus.BulkGroupReady(group)
-                            }
+                            scanStatus = statusForGroup(group)
                         }
                     }
                     .onFailure { exception ->
@@ -297,11 +299,16 @@ class ScanViewModel : ViewModel() {
                 groupId = group.groupId,
                 memberNumbers = selectedMembers.mapNotNull { it.memberNumber },
                 scannerNumber = phoneToSend
-            ).onSuccess { scannedAt ->
+            ).onSuccess { result ->
+                val scannedAt = result.scannedAt
                 val selectedNumbers = selectedMembers.mapNotNull { it.memberNumber }.toSet()
                 val updatedMembers = group.members.map { member ->
                     if (member.memberNumber in selectedNumbers) {
-                        member.copy(scannerDate = scannedAt, scannerNumber = phoneToSend)
+                        member.copy(
+                            scannerDate = scannedAt,
+                            scannerNumber = phoneToSend,
+                            scanBatchId = result.batchId
+                        )
                     } else {
                         member
                     }
@@ -315,6 +322,8 @@ class ScanViewModel : ViewModel() {
                     groupId = group.groupId,
                     scannedMembers = selectedMembers,
                     scannedAt = scannedAt,
+                    batchId = result.batchId,
+                    scannerNumber = phoneToSend,
                     totalScanned = totalScanned,
                     totalMembers = updatedMembers.size
                 )
@@ -334,6 +343,76 @@ class ScanViewModel : ViewModel() {
             isLoading = false
         }
     }
+
+    fun openBulkBatchHistory() {
+        val group = bulkGroup ?: return
+        viewModelScope.launch {
+            bulkPrintMessage = null
+            scanStatus = ScanStatus.BulkBatchHistoryLoading(group)
+            repository.getGroupScanBatches(group.groupId)
+                .onSuccess { batches ->
+                    if (scanStatus !is ScanStatus.BulkBatchHistoryLoading) return@onSuccess
+                    loadedBulkBatches = batches
+                    scanStatus = ScanStatus.BulkBatchHistory(group, batches)
+                }
+                .onFailure { error ->
+                    if (scanStatus !is ScanStatus.BulkBatchHistoryLoading) return@onFailure
+                    loadedBulkBatches = emptyList()
+                    scanStatus = ScanStatus.BulkBatchHistory(
+                        group = group,
+                        batches = emptyList(),
+                        errorMessage = error.message ?: "Unable to load scan batches"
+                    )
+                }
+        }
+    }
+
+    fun showBulkBatch(batch: BulkScanBatch) {
+        val group = bulkGroup ?: return
+        bulkPrintMessage = null
+        scanStatus = ScanStatus.BulkBatchDetails(group, batch)
+    }
+
+    fun reprintBulkBatch(batch: BulkScanBatch, printerManager: ThermalPrinterManager) {
+        if (reprintingBatchId != null) return
+        reprintingBatchId = batch.id
+        bulkPrintMessage = null
+        printerManager.printBulkScan(
+            groupId = batch.groupId,
+            members = batch.members,
+            scannedAt = batch.scannedAt,
+            issuerNumber = batch.scannerNumber,
+            onSuccess = {
+                reprintingBatchId = null
+                bulkPrintMessage = "Two copies reprinted successfully"
+            },
+            onError = { error ->
+                reprintingBatchId = null
+                bulkPrintMessage = "Reprint failed: $error"
+            }
+        )
+    }
+
+    fun navigateBackInBulkHistory() {
+        scanStatus = when (val status = scanStatus) {
+            is ScanStatus.BulkBatchDetails -> ScanStatus.BulkBatchHistory(
+                group = status.group,
+                batches = loadedBulkBatches
+            )
+            is ScanStatus.BulkBatchHistory,
+            is ScanStatus.BulkBatchHistoryLoading -> bulkGroup?.let(::statusForGroup)
+                ?: ScanStatus.Idle
+            else -> status
+        }
+        bulkPrintMessage = null
+    }
+
+    private fun statusForGroup(group: BulkGroup): ScanStatus =
+        if (group.members.all(::hasMemberBeenScanned)) {
+            ScanStatus.BulkAllScanned(group)
+        } else {
+            ScanStatus.BulkGroupReady(group)
+        }
 
     private fun updateScanInfo(member: Member) {
         viewModelScope.launch {
@@ -376,7 +455,7 @@ class ScanViewModel : ViewModel() {
 
         val group = bulkGroup
         if (group != null) {
-            scanStatus = ScanStatus.BulkGroupReady(group)
+            scanStatus = statusForGroup(group)
         } else {
             scannedMember?.let { member -> updateScanInfo(member) }
         }
@@ -391,6 +470,8 @@ class ScanViewModel : ViewModel() {
         bulkGroup = null
         selectedBulkMemberNumbers = emptySet()
         bulkPrintMessage = null
+        reprintingBatchId = null
+        loadedBulkBatches = emptyList()
         scanStatus = ScanStatus.Idle
     }
 
@@ -410,10 +491,19 @@ sealed class ScanStatus {
         val groupId: String,
         val scannedMembers: List<Member>,
         val scannedAt: String,
+        val batchId: String,
+        val scannerNumber: String,
         val totalScanned: Int,
         val totalMembers: Int
     ) : ScanStatus()
-    data class BulkAllScanned(val groupId: String, val memberCount: Int) : ScanStatus()
+    data class BulkAllScanned(val group: BulkGroup) : ScanStatus()
+    data class BulkBatchHistoryLoading(val group: BulkGroup) : ScanStatus()
+    data class BulkBatchHistory(
+        val group: BulkGroup,
+        val batches: List<BulkScanBatch>,
+        val errorMessage: String? = null
+    ) : ScanStatus()
+    data class BulkBatchDetails(val group: BulkGroup, val batch: BulkScanBatch) : ScanStatus()
     object Invalid : ScanStatus()
     data class Error(val message: String) : ScanStatus()
 }
