@@ -124,8 +124,10 @@ fun SocietyApp() {
     // --- STATE HOISTING ---
     // Create the managers here so they survive tab changes
     val context = LocalContext.current
-    val thermalPrinter = remember { ThermalPrinterManager(context) }
     val bluetoothManager = remember { BluetoothPrinterManager(context) }
+    val thermalPrinter = remember(bluetoothManager) {
+        ThermalPrinterManager(context, bluetoothManager)
+    }
 
     NavigationSuiteScaffold(
         navigationSuiteItems = {
@@ -172,7 +174,10 @@ fun SocietyApp() {
                 }
                 // --- NEW REPORT TAB ---
                 AppDestinations.REPORT -> {
-                    ReportScreen(modifier = Modifier.padding(innerPadding))
+                    ReportScreen(
+                        thermalPrinterManager = thermalPrinter,
+                        modifier = Modifier.padding(innerPadding)
+                    )
                 }
                 AppDestinations.PRINTER -> {
                     PrinterScreen(

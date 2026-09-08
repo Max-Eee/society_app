@@ -555,7 +555,19 @@ private fun BulkScannedSheet(
             Text("Bulk scan complete", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Group ${status.groupId}")
             Spacer(Modifier.height(16.dp))
-            Text("${status.scannedMembers.size} members scanned now", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                "${status.scannedMembers.size}",
+                style = MaterialTheme.typography.displayMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Text(
+                "Members scanned now",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Spacer(Modifier.height(12.dp))
             Text("${status.totalScanned} of ${status.totalMembers} members scanned in total")
             Text("Scanned ${formatDisplayDate(status.scannedAt)}")
             printMessage?.let {

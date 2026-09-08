@@ -323,6 +323,7 @@ class ScanViewModel : ViewModel() {
                     groupId = group.groupId,
                     members = selectedMembers,
                     scannedAt = scannedAt,
+                    issuerNumber = phoneToSend,
                     onSuccess = { bulkPrintMessage = "Scanned member list printed automatically" },
                     onError = { error -> bulkPrintMessage = "Scan saved successfully. Print failed: $error" }
                 )

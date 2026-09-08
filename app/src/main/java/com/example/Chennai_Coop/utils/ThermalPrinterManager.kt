@@ -17,11 +17,18 @@ import java.util.*
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
-class ThermalPrinterManager(private val context: Context) {
+data class PrintableReportRow(
+    val number: String,
+    val issuedCount: Int,
+    val scannedCount: Int
+)
+
+class ThermalPrinterManager(
+    private val context: Context,
+    private val bluetoothManager: BluetoothPrinterManager = BluetoothPrinterManager(context)
+) {
 
     private val TAG = "ThermalPrinter"
-    private val bluetoothManager = BluetoothPrinterManager(context)
-
     // --- SECURITY CONFIGURATION ---
     private val SECRET_KEY = "s0c1ety_Sup3r_S3cr3t_K3y_@2024"
 
@@ -202,6 +209,9 @@ class ThermalPrinterManager(private val context: Context) {
     // --- LOGIC ---
 
     private fun isMemberAccountClosed(member: Member): Boolean {
+        val station = member.station?.trim().orEmpty()
+        if (station.equals("A/C Closed, No Demand", ignoreCase = true)) return true
+
         val sno = member.sno?.toString()?.trim() ?: ""
         if (sno.equals("A/C Closed", ignoreCase = true)) return true
         val dividendStatus = member.dividend.firstOrNull()?.serialNumber?.toString()?.trim() ?: ""
@@ -422,6 +432,7 @@ class ThermalPrinterManager(private val context: Context) {
         groupId: String,
         members: List<Member>,
         scannedAt: String,
+        issuerNumber: String,
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -455,20 +466,30 @@ class ThermalPrinterManager(private val context: Context) {
                     compareBy<Member> { it.memberNumber?.toIntOrNull() ?: Int.MAX_VALUE }
                         .thenBy { it.memberNumber.orEmpty() }
                 )
-                fun boxedCenteredLine(text: String): String {
+                fun boxedCenteredEmphasizedLine(text: String): String {
                     val innerWidth = 46
                     val value = text.take(innerWidth)
                     val leftPadding = (innerWidth - value.length) / 2
                     val rightPadding = innerWidth - value.length - leftPadding
-                    return "|${" ".repeat(leftPadding)}$value${" ".repeat(rightPadding)}|\n"
+                    return buildString {
+                        append('|')
+                        append(" ".repeat(leftPadding))
+                        append("\u001D\u0021\u0010") // Double height
+                        append("\u001B\u0045\u0001") // Bold on
+                        append(value)
+                        append("\u001B\u0045\u0000") // Bold off
+                        append("\u001D\u0021\u0000") // Normal size
+                        append(" ".repeat(rightPadding))
+                        append("|\n")
+                    }
                 }
                 val receipt = buildString {
                     append("\u001B@")
                     append("\u001Ba\u0001")
                     append("\u001D\u0021\u0001")
                     append("\u001B\u0045\u0001")
-                    append("Chennai Corporation \n")
-                    append("Offical Society LIMITED - 5.125\n")
+                    append("Chennai Corporation\n")
+                    append("Official Co-Operative Society Limited - 5125\n")
                     append("\u001D\u0021\u0000")
                     append("\u001B\u0045\u0000")
                     append("------------------------------------------------\n")
@@ -477,6 +498,7 @@ class ThermalPrinterManager(private val context: Context) {
                     append("\u001B\u0045\u0000")
                     append("Group: $groupId\n")
                     append("Issue Date: ${formatShortDate(scannedAt)}\n")
+                    append("Issuer Number: $issuerNumber\n")
                     append("------------------------------------------------\n")
                     append("\u001Ba\u0000")
                     append(String.format("%-5s%-9s%-34s\n", "SNO", "MNO", "NAME"))
@@ -489,8 +511,8 @@ class ThermalPrinterManager(private val context: Context) {
                     }
                     append("------------------------------------------------\n")
                     append("+----------------------------------------------+\n")
-                    append(boxedCenteredLine("TOTAL SCANNED"))
-                    append(boxedCenteredLine(orderedMembers.size.toString()))
+                    append(boxedCenteredEmphasizedLine("TOTAL SCANNED"))
+                    append(boxedCenteredEmphasizedLine(orderedMembers.size.toString()))
                     append("+----------------------------------------------+\n")
                     append("\n\n\n\u001DVA\u0003")
                 }
@@ -499,6 +521,80 @@ class ThermalPrinterManager(private val context: Context) {
                 else onError("Failed to print scanned member list")
             } catch (e: Exception) {
                 Log.e(TAG, "Error printing bulk scan: ${e.message}", e)
+                onError("Error: ${e.message}")
+            }
+        }
+    }
+
+    fun printReport(
+        totalIssued: Int,
+        totalScanned: Int,
+        rows: List<PrintableReportRow>,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                if (!bluetoothManager.isConnected()) {
+                    val printers = bluetoothManager.getPairedDevices()
+                    if (printers.isEmpty()) {
+                        onError("No paired Bluetooth printers found.")
+                        return@launch
+                    }
+                    val printer = printers.find { device ->
+                        val name = device.name.orEmpty()
+                        name.contains("MPT", ignoreCase = true) ||
+                                name.contains("printer", ignoreCase = true) ||
+                                name.contains("POS", ignoreCase = true)
+                    } ?: printers.first()
+
+                    if (!bluetoothManager.connect(printer)) {
+                        onError("Failed to connect to printer")
+                        return@launch
+                    }
+                }
+
+                val printedAt = SimpleDateFormat(
+                    "dd/MM/yy hh:mm a",
+                    Locale.getDefault()
+                ).format(Date())
+                val receipt = buildString {
+                    append("\u001B@")
+                    append("\u001Ba\u0001")
+                    append("\u001D\u0021\u0001")
+                    append("\u001B\u0045\u0001")
+                    append("Chennai Corporation \n")
+                    append("Offical Society LIMITED - 5.125\n")
+                    append("\u001D\u0021\u0000")
+                    append("\u001B\u0045\u0000")
+                    append("------------------------------------------------\n")
+                    append("\u001B\u0045\u0001")
+                    append("ACTIVITY REPORT\n")
+                    append("\u001B\u0045\u0000")
+                    append("Printed: $printedAt\n")
+                    append("------------------------------------------------\n")
+                    append("\u001Ba\u0000")
+                    append(formatKeyValue("Total Issued", totalIssued.toString()))
+                    append(formatKeyValue("Total Scanned", totalScanned.toString()))
+                    append("------------------------------------------------\n")
+                    append(formatThreeColumns("ISSUER ID", "ISSUED", "SCANNED"))
+                    append("------------------------------------------------\n")
+                    rows.forEach { row ->
+                        append(formatThreeColumns(
+                            row.number.take(15),
+                            row.issuedCount.toString(),
+                            row.scannedCount.toString()
+                        ))
+                    }
+                    append("------------------------------------------------\n")
+                    append(formatKeyValue("Total Operators", rows.size.toString()))
+                    append("\n\n\n\u001DVA\u0003")
+                }
+
+                if (bluetoothManager.print(receipt)) onSuccess()
+                else onError("Failed to print report")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error printing report: ${e.message}", e)
                 onError("Error: ${e.message}")
             }
         }

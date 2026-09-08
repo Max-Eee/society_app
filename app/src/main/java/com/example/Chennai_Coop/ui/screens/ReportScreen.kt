@@ -1,5 +1,6 @@
 package com.example.Chennai_Coop.ui.screens
 
+import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -16,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -23,20 +25,30 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.Chennai_Coop.ui.viewmodel.ReportItem
 import com.example.Chennai_Coop.ui.viewmodel.ReportViewModel
+import com.example.Chennai_Coop.utils.PrintableReportRow
+import com.example.Chennai_Coop.utils.ThermalPrinterManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportScreen(
+    thermalPrinterManager: ThermalPrinterManager,
     viewModel: ReportViewModel = viewModel(),
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    var isPrinting by remember { mutableStateOf(false) }
+
     // Reload whenever this tab enters the composition.
     LaunchedEffect(Unit) {
         viewModel.loadReportData()
@@ -131,7 +143,30 @@ fun ReportScreen(
                         item {
                             GrandTotalCard(
                                 totalIssued = viewModel.totalIssued,
-                                totalScans = viewModel.totalScans
+                                totalScans = viewModel.totalScans,
+                                isPrinting = isPrinting,
+                                onPrint = {
+                                    isPrinting = true
+                                    thermalPrinterManager.printReport(
+                                        totalIssued = viewModel.totalIssued,
+                                        totalScanned = viewModel.totalScans,
+                                        rows = viewModel.reportList.map { item ->
+                                            PrintableReportRow(
+                                                number = item.number,
+                                                issuedCount = item.issueCount,
+                                                scannedCount = item.scanCount
+                                            )
+                                        },
+                                        onSuccess = {
+                                            isPrinting = false
+                                            Toast.makeText(context, "Report printed", Toast.LENGTH_SHORT).show()
+                                        },
+                                        onError = { error ->
+                                            isPrinting = false
+                                            Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+                                        }
+                                    )
+                                }
                             )
                         }
 
@@ -201,7 +236,12 @@ private fun ReportLoadingShimmer() {
 
 // ... (GrandTotalCard and ReportItemCard remain exactly the same as your original code)
 @Composable
-fun GrandTotalCard(totalIssued: Int, totalScans: Int) {
+fun GrandTotalCard(
+    totalIssued: Int,
+    totalScans: Int,
+    isPrinting: Boolean,
+    onPrint: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -213,6 +253,7 @@ fun GrandTotalCard(totalIssued: Int, totalScans: Int) {
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -223,6 +264,18 @@ fun GrandTotalCard(totalIssued: Int, totalScans: Int) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                 )
+                Spacer(modifier = Modifier.weight(1f))
+                IconButton(onClick = onPrint, enabled = !isPrinting) {
+                    if (isPrinting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    } else {
+                        Icon(Icons.Default.Print, contentDescription = "Print report")
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))

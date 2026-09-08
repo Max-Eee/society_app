@@ -21,7 +21,7 @@ class MemberRepository {
     private val TABLE_NAME = "ccocs"
 
     private fun searchFieldFor(value: String): String =
-        if (value.length == 5 && value.all(Char::isDigit)) "mno" else "edpno"
+        if (value.length in 4..5 && value.all(Char::isDigit)) "mno" else "edpno"
 
     suspend fun searchMemberByNumber(searchQuery: String): Result<Member?> {
         return withContext(Dispatchers.IO) {
@@ -29,7 +29,7 @@ class MemberRepository {
                 Log.d(TAG, "Searching for member with query: $searchQuery")
 
                 val normalizedQuery = searchQuery.trim()
-                // Five digits identify a member number; all other inputs are employee numbers.
+                // Four or five digits identify a member number; all other inputs are employee numbers.
                 val searchField = searchFieldFor(normalizedQuery)
                 Log.d(TAG, "Searching by field: $searchField")
 
