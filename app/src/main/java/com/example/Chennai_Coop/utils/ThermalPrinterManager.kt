@@ -465,7 +465,7 @@ class ThermalPrinterManager(
                     val leftPadding = (innerWidth - value.length) / 2
                     val rightPadding = innerWidth - value.length - leftPadding
                     return buildString {
-                        append("\u001D\u0021\u0010") // Double height for the complete boxed row
+                        append("\u001D\u0021\u0001") // Double height without changing the 48-column width
                         append("\u001B\u0045\u0001") // Bold on
                         append('|')
                         append(" ".repeat(leftPadding))

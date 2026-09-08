@@ -17,8 +17,8 @@ data class EventConfig(
 
         private val fallback = EventConfig(
             societyNameLines = listOf(
-                "Chennai Corporation",
-                "Official Co-Operative Society Limited - 5125"
+                "Chennai Corporation Official",
+                "Co-Operative Society Limited - 5125"
             ),
             meetingTitle = "G.B MEETING NOTICE",
             meetingDate = "08-10-2026 at 9:30 a.m",
